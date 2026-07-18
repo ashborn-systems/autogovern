@@ -1,0 +1,19 @@
+{
+  "description": "A section that was regenerated and the hash change that triggered it.",
+  "properties": {
+    "changed_input": {
+      "title": "Changed Input",
+      "type": "string"
+    },
+    "section": {
+      "title": "Section",
+      "type": "string"
+    }
+  },
+  "required": [
+    "section",
+    "changed_input"
+  ],
+  "title": "SectionRegeneration",
+  "type": "object"
+}

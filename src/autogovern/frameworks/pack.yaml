@@ -1,0 +1,103 @@
+# Framework pack index for auto-govern.
+# The generation engine treats this file and everything it references as data.
+# Content in agentic-governance/ and agentic-business-case/ is copied verbatim
+# from its source skills.
+
+pack:
+  id: agentic-governance
+  version: 1.1.0
+  source: agentic-governance skill; selected references from the agentic-business-case skill
+  licence: inherit-project
+
+frameworks:
+  - id: agentic-governance
+    path: agentic-governance/
+    role: primary
+    files:
+      knowledge_base: agentic-governance/governance-frameworks.md   # controls, risk vectors, testing methods, metrics, regulatory principles
+      artefact_templates: agentic-governance/governance-artefacts.md # authoritative section templates for generated documents
+      runbook: agentic-governance/ongoing-governance-runbook.md      # perpetual-operation loop (enterprise scheduled-drift seam)
+      output_rules: agentic-governance/formatting.md                 # production rules: single currency, calculation blocks, prose notes
+      skill_source: agentic-governance/skill-source.md               # original SKILL.md, kept for provenance and writing rules
+
+  - id: agentic-business-case
+    path: agentic-business-case/
+    role: supplementary
+    files:
+      quality_rubric: agentic-business-case/rubric.md                # verifier quality rubric; see scope note below
+      business_frameworks: agentic-business-case/frameworks.md       # sections 1-8 only; see scope note below
+    scope_notes:
+      - "rubric.md: only the 'Risk, governance, and responsible deployment', 'Realism, feasibility, and judgement', and 'Cross-cutting quality signals' sections apply. Slide and deck sections are out of scope for this tool."
+      - "frameworks.md: sections 1-8 (business frameworks) are in scope as supplementary inputs. Sections 9-16 duplicate the governance knowledge base; agentic-governance/governance-frameworks.md is authoritative and wins on any conflict."
+
+# Style authority: the writing rules section of the primary framework's
+# skill-source.md governs every generation prompt template. It is a general
+# style guide, not tied to any individual: plain declarative sentences,
+# concrete thresholds and figures, and a ban on common AI constructions
+# (em-dashes, contrastive negation, significance inflation, meta-signposting,
+# copula avoidance, rhetorical triplets). Enforced in prompts and checked by
+# the verifier pass.
+style_authority: agentic-governance/skill-source.md#writing-rules-for-all-output
+
+# Verifier quality rubric: beyond claim-support checking, the verifier scores
+# regenerated sections against the in-scope rubric criteria - risks mapped
+# one-to-one to the agent's actual capabilities, kill switch and audit logging
+# present, sandbox protocol matched to privilege, strategic restraint named,
+# numbers carrying stated assumptions, one consistent currency.
+verifier_rubric: agentic-business-case/rubric.md
+
+# Document feeds: which pack sections supply each generated document.
+# Section references use the numbered headings in the source files.
+# The generation engine builds its section dependency graph from this mapping.
+document_feeds:
+  system-card.md:
+    templates: [agentic-governance/governance-artefacts.md#3]        # Agent / model card
+    knowledge:
+      - agentic-governance/governance-frameworks.md#3                # three layers of autonomy
+      - agentic-governance/governance-frameworks.md#10               # MCP and A2A
+      - agentic-business-case/frameworks.md#3                        # 7-point agentic viability checklist (intended-purpose justification)
+      - agentic-business-case/frameworks.md#4                        # rule of ten (intended-purpose justification)
+  risk-assessment.md:
+    templates: [agentic-governance/governance-artefacts.md#2]        # Risk to control mapping
+    knowledge:
+      - agentic-governance/governance-frameworks.md#2                # six risk vectors + red-team vectors
+      - agentic-governance/governance-frameworks.md#8                # first-principles risk assessment
+  inventory.md:
+    templates: [agentic-governance/governance-artefacts.md#1]        # Central agent register entry
+    knowledge:
+      - agentic-governance/governance-frameworks.md#1                # lifecycle step 1: ownership and register
+  oversight.md:
+    templates: [agentic-governance/governance-artefacts.md#4]        # Deployment blueprint
+    knowledge:
+      - agentic-governance/governance-frameworks.md#9                # accountability and ownership
+      - agentic-governance/governance-frameworks.md#3                # autonomy layers
+  testing.md:
+    templates: [agentic-governance/governance-artefacts.md#6]        # Pre-deployment checklist
+    knowledge:
+      - agentic-governance/governance-frameworks.md#4                # testing methodologies
+      - agentic-governance/governance-frameworks.md#5                # governance metrics
+      - agentic-governance/governance-frameworks.md#6                # sandbox environments
+  incident-response.md:
+    templates: [agentic-governance/governance-artefacts.md#5]        # Monitoring and incident-response plan
+    knowledge:
+      - agentic-governance/governance-frameworks.md#1                # lifecycle steps 4 and 5: monitoring; failure preparation
+  data-protection.md:
+    templates: []                                                    # engine template; no dedicated artefact in this pack version
+    knowledge:
+      - agentic-governance/governance-frameworks.md#7                # regulatory landscape and deployment liability
+  QUICKSTART.md:
+    templates: []                                                    # engine-generated
+    knowledge: []
+  ATTENTION.md:
+    templates: []                                                    # engine-generated
+    knowledge: []
+  CHANGELOG.md:
+    templates: []                                                    # engine-generated
+    knowledge: []
+
+# Enterprise seam: the runbook maps to run mode / scheduled drift checks.
+# Cadence table and loop steps in ongoing-governance-runbook.md define what a
+# scheduled run reviews and records. Not consumed by the OSS generation engine.
+enterprise_hooks:
+  scheduled_drift: agentic-governance/ongoing-governance-runbook.md
+  agentguard_evidence: agentic-governance/governance-artefacts.md#6  # pre-deployment checklist: the evidence base AgentGuard evaluates at the deploy gate

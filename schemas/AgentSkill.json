@@ -1,0 +1,31 @@
+{
+  "description": "A distinct capability the agent can perform.",
+  "properties": {
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "description"
+  ],
+  "title": "AgentSkill",
+  "type": "object"
+}

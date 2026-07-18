@@ -1,0 +1,43 @@
+{
+  "description": "Token usage reported by the provider for a run.",
+  "properties": {
+    "completion": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Completion"
+    },
+    "prompt": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prompt"
+    },
+    "total": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Total"
+    }
+  },
+  "title": "TokenCounts",
+  "type": "object"
+}

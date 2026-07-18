@@ -1,0 +1,19 @@
+{
+  "description": "Records where a profile field came from.\n\nEvery scanner-derived field carries one. Malformed provenance (missing\npath or hash) fails validation.",
+  "properties": {
+    "content_hash": {
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "source_path": {
+      "title": "Source Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_path",
+    "content_hash"
+  ],
+  "title": "Provenance",
+  "type": "object"
+}

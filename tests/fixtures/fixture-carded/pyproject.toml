@@ -1,0 +1,9 @@
+[project]
+name = "support-triage-agent"
+version = "0.3.0"
+description = "A customer support triage agent."
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40.0",
+    "httpx>=0.28.0",
+]

@@ -1,0 +1,32 @@
+{
+  "name": "support-triage-agent",
+  "description": "A customer support triage agent that classifies incoming tickets and routes them to the right team.",
+  "url": "https://example.com/agents/support-triage",
+  "version": "0.3.0",
+  "capabilities": {
+    "streaming": false,
+    "push_notifications": false,
+    "state_transition_history": true
+  },
+  "skills": [
+    {
+      "id": "classify",
+      "name": "Classify Ticket",
+      "description": "Classifies a support ticket by severity and category.",
+      "tags": ["triage", "classification"]
+    },
+    {
+      "id": "route",
+      "name": "Route Ticket",
+      "description": "Suggests the team that should handle a ticket.",
+      "tags": ["routing", "triage"]
+    }
+  ],
+  "authentication": {
+    "schemes": ["bearer"]
+  },
+  "provider": {
+    "organization": "Acme Support",
+    "url": "https://example.com/support"
+  }
+}

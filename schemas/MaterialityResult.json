@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "MaterialityCriterion": {
+      "description": "One scored criterion within a materiality assessment.",
+      "properties": {
+        "criterion": {
+          "title": "Criterion",
+          "type": "string"
+        },
+        "reasoning": {
+          "default": "",
+          "title": "Reasoning",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "criterion",
+        "score"
+      ],
+      "title": "MaterialityCriterion",
+      "type": "object"
+    }
+  },
+  "description": "The outcome of the material change detection pass.",
+  "properties": {
+    "band": {
+      "title": "Band",
+      "type": "string"
+    },
+    "criteria": {
+      "items": {
+        "$ref": "#/$defs/MaterialityCriterion"
+      },
+      "title": "Criteria",
+      "type": "array"
+    },
+    "score": {
+      "title": "Score",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "score",
+    "band"
+  ],
+  "title": "MaterialityResult",
+  "type": "object"
+}

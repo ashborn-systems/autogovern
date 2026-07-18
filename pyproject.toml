@@ -1,0 +1,51 @@
+[project]
+name = "autogovern"
+version = "0.1.0"
+description = "Generate and maintain governance documentation for AI agents."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Henry", email = "h.stokes185@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.0",
+]
+
+[project.scripts]
+autogovern = "autogovern.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.1.1",
+    "ruff>=0.15.22",
+    "types-pyyaml>=6.0.12.20260518",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.uv]
+package = true

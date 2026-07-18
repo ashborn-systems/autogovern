@@ -1,0 +1,14 @@
+{
+  "description": "Authentication schemes the agent accepts.",
+  "properties": {
+    "schemes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Schemes",
+      "type": "array"
+    }
+  },
+  "title": "AgentAuthentication",
+  "type": "object"
+}

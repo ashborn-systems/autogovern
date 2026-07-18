@@ -1,0 +1,43 @@
+{
+  "description": "Model configuration observed in the agent's code.",
+  "properties": {
+    "api_base": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Api Base"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "temperature": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Temperature"
+    }
+  },
+  "required": [
+    "provider",
+    "model"
+  ],
+  "title": "ModelConfiguration",
+  "type": "object"
+}

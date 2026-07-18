@@ -1,0 +1,31 @@
+{
+  "description": "A runtime or build dependency discovered in the manifest.",
+  "properties": {
+    "manifest": {
+      "default": "",
+      "title": "Manifest",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Version"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "Dependency",
+  "type": "object"
+}

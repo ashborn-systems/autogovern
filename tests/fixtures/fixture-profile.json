@@ -1,0 +1,99 @@
+{
+  "name": "support-triage-agent",
+  "description": "A customer support triage agent that classifies incoming tickets and routes them to the right team.",
+  "url": "https://example.com/agents/support-triage",
+  "version": "0.3.0",
+  "capabilities": {
+    "streaming": false,
+    "push_notifications": false,
+    "state_transition_history": true
+  },
+  "skills": [
+    {
+      "id": "classify",
+      "name": "Classify Ticket",
+      "description": "Classifies a support ticket by severity and category.",
+      "tags": ["triage", "classification"]
+    },
+    {
+      "id": "route",
+      "name": "Route Ticket",
+      "description": "Suggests the team that should handle a ticket.",
+      "tags": ["routing", "triage"]
+    }
+  ],
+  "authentication": {
+    "schemes": ["bearer"]
+  },
+  "provider": {
+    "organization": "Acme Support",
+    "url": "https://example.com/support"
+  },
+  "governance": {
+    "model_configuration": {
+      "value": {
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet",
+        "temperature": 0.0,
+        "api_base": "https://api.anthropic.com"
+      },
+      "provenance": {
+        "source_path": "pyproject.toml",
+        "content_hash": "sha256:abc123def456"
+      }
+    },
+    "permissions_surface": {
+      "value": [
+        {"kind": "tool", "detail": "fetch_ticket — reads ticket by ID"},
+        {"kind": "tool", "detail": "assign_ticket — writes ticket assignment"}
+      ],
+      "provenance": {
+        "source_path": ".mcp.json",
+        "content_hash": "sha256:789abc012def"
+      }
+    },
+    "data_categories": {
+      "value": ["personal"],
+      "provenance": {
+        "source_path": "CLAUDE.md",
+        "content_hash": "sha123:fedcba987"
+      }
+    },
+    "dependencies": {
+      "value": [
+        {"name": "anthropic", "version": ">=0.40.0", "manifest": "pyproject.toml"},
+        {"name": "httpx", "version": ">=0.28.0", "manifest": "pyproject.toml"}
+      ],
+      "provenance": {
+        "source_path": "pyproject.toml",
+        "content_hash": "sha256:abc123def456"
+      }
+    },
+    "prompt_inventory": {
+      "value": [
+        {
+          "path": "prompts/system.md",
+          "content_hash": "sha256:prompt123hash"
+        }
+      ],
+      "provenance": {
+        "source_path": "prompts/system.md",
+        "content_hash": "sha256:prompt123hash"
+      }
+    }
+  },
+  "provenance": {
+    "name": {
+      "source_path": ".well-known/agent.json",
+      "content_hash": "sha256:card456"
+    },
+    "version": {
+      "source_path": ".well-known/agent.json",
+      "content_hash": "sha256:card456"
+    },
+    "skills": {
+      "source_path": ".well-known/agent.json",
+      "content_hash": "sha256:card456"
+    }
+  }
+}

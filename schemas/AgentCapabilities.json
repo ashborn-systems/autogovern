@@ -1,0 +1,43 @@
+{
+  "description": "Optional capability flags advertised by the agent.",
+  "properties": {
+    "push_notifications": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Push Notifications"
+    },
+    "state_transition_history": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "State Transition History"
+    },
+    "streaming": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Streaming"
+    }
+  },
+  "title": "AgentCapabilities",
+  "type": "object"
+}

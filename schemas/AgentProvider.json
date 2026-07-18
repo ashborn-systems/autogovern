@@ -1,0 +1,19 @@
+{
+  "description": "The organisation that provides the agent.",
+  "properties": {
+    "organization": {
+      "title": "Organization",
+      "type": "string"
+    },
+    "url": {
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "organization",
+    "url"
+  ],
+  "title": "AgentProvider",
+  "type": "object"
+}

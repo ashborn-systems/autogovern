@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "AutonomyLevel": {
+      "enum": [
+        "human-in-the-loop",
+        "human-on-the-loop",
+        "fully-autonomous"
+      ],
+      "title": "AutonomyLevel",
+      "type": "string"
+    },
+    "DataCategory": {
+      "description": "Categories of data the agent processes.",
+      "enum": [
+        "none",
+        "personal",
+        "special-category",
+        "financial",
+        "operational"
+      ],
+      "title": "DataCategory",
+      "type": "string"
+    },
+    "DeploymentContext": {
+      "enum": [
+        "internal",
+        "customer-facing",
+        "third-party-distributed"
+      ],
+      "title": "DeploymentContext",
+      "type": "string"
+    },
+    "RiskAppetite": {
+      "enum": [
+        "conservative",
+        "balanced",
+        "aggressive"
+      ],
+      "title": "RiskAppetite",
+      "type": "string"
+    }
+  },
+  "description": "Organisational context captured by the ``init`` wizard.",
+  "properties": {
+    "autonomy_level": {
+      "$ref": "#/$defs/AutonomyLevel"
+    },
+    "data_categories": {
+      "items": {
+        "$ref": "#/$defs/DataCategory"
+      },
+      "title": "Data Categories",
+      "type": "array"
+    },
+    "deployment_context": {
+      "$ref": "#/$defs/DeploymentContext"
+    },
+    "intended_users": {
+      "default": "",
+      "title": "Intended Users",
+      "type": "string"
+    },
+    "jurisdictions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Jurisdictions",
+      "type": "array"
+    },
+    "organisation": {
+      "title": "Organisation",
+      "type": "string"
+    },
+    "oversight_model": {
+      "default": "",
+      "title": "Oversight Model",
+      "type": "string"
+    },
+    "owner": {
+      "default": "",
+      "title": "Owner",
+      "type": "string"
+    },
+    "review_cadence": {
+      "default": "",
+      "title": "Review Cadence",
+      "type": "string"
+    },
+    "risk_appetite": {
+      "$ref": "#/$defs/RiskAppetite"
+    },
+    "sector": {
+      "title": "Sector",
+      "type": "string"
+    },
+    "strategy": {
+      "default": "",
+      "title": "Strategy",
+      "type": "string"
+    }
+  },
+  "required": [
+    "organisation",
+    "sector",
+    "deployment_context",
+    "autonomy_level",
+    "risk_appetite"
+  ],
+  "title": "ContextManifest",
+  "type": "object"
+}

@@ -1,0 +1,24 @@
+{
+  "description": "An item requiring human attention, opened or closed in a run.",
+  "properties": {
+    "action": {
+      "title": "Action",
+      "type": "string"
+    },
+    "detail": {
+      "default": "",
+      "title": "Detail",
+      "type": "string"
+    },
+    "item_id": {
+      "title": "Item Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item_id",
+    "action"
+  ],
+  "title": "AttentionItem",
+  "type": "object"
+}

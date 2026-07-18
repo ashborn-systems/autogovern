@@ -1,0 +1,19 @@
+{
+  "description": "A prompt or instruction file discovered in the agent's code.",
+  "properties": {
+    "content_hash": {
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "content_hash"
+  ],
+  "title": "PromptEntry",
+  "type": "object"
+}

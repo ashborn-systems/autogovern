@@ -1,0 +1,17 @@
+{
+  "description": "Materiality score bands. Defaults: >=80 material, <=20 immaterial.",
+  "properties": {
+    "immaterial": {
+      "default": 20,
+      "title": "Immaterial",
+      "type": "integer"
+    },
+    "material": {
+      "default": 80,
+      "title": "Material",
+      "type": "integer"
+    }
+  },
+  "title": "Thresholds",
+  "type": "object"
+}

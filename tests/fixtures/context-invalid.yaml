@@ -1,0 +1,14 @@
+# Invalid organisational context manifest for init --from rejection tests.
+# Every field here is intentionally wrong so init can list them all.
+organisation: ""
+sector: ""
+jurisdictions: "UK"  # should be a list
+deployment_context: mars  # invalid enum
+intended_users: ""
+autonomy_level: telepathic  # invalid enum
+oversight_model: ""
+data_categories: ["telepathic"]  # invalid enum value
+risk_appetite: reckless  # invalid enum
+strategy: ""
+owner: ""
+review_cadence: ""

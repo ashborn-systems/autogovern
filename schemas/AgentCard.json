@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "AgentAuthentication": {
+      "description": "Authentication schemes the agent accepts.",
+      "properties": {
+        "schemes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Schemes",
+          "type": "array"
+        }
+      },
+      "title": "AgentAuthentication",
+      "type": "object"
+    },
+    "AgentCapabilities": {
+      "description": "Optional capability flags advertised by the agent.",
+      "properties": {
+        "push_notifications": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Push Notifications"
+        },
+        "state_transition_history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Transition History"
+        },
+        "streaming": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Streaming"
+        }
+      },
+      "title": "AgentCapabilities",
+      "type": "object"
+    },
+    "AgentProvider": {
+      "description": "The organisation that provides the agent.",
+      "properties": {
+        "organization": {
+          "title": "Organization",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "organization",
+        "url"
+      ],
+      "title": "AgentProvider",
+      "type": "object"
+    },
+    "AgentSkill": {
+      "description": "A distinct capability the agent can perform.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description"
+      ],
+      "title": "AgentSkill",
+      "type": "object"
+    }
+  },
+  "description": "A2A AgentCard \u2014 the standards-compliant agent business card.",
+  "properties": {
+    "authentication": {
+      "$ref": "#/$defs/AgentAuthentication"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/AgentCapabilities"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "provider": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentProvider"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "skills": {
+      "items": {
+        "$ref": "#/$defs/AgentSkill"
+      },
+      "title": "Skills",
+      "type": "array"
+    },
+    "url": {
+      "title": "Url",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "url",
+    "version"
+  ],
+  "title": "AgentCard",
+  "type": "object"
+}

@@ -1,0 +1,19 @@
+{
+  "description": "A single permission or scope the agent exercises.",
+  "properties": {
+    "detail": {
+      "default": "",
+      "title": "Detail",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "Permission",
+  "type": "object"
+}

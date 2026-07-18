@@ -1,0 +1,29 @@
+{
+  "description": "Provider settings for generation and verification LLM passes.",
+  "properties": {
+    "api_base": {
+      "title": "Api Base",
+      "type": "string"
+    },
+    "api_key_env": {
+      "title": "Api Key Env",
+      "type": "string"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "temperature": {
+      "default": 0.0,
+      "title": "Temperature",
+      "type": "number"
+    }
+  },
+  "required": [
+    "api_base",
+    "model",
+    "api_key_env"
+  ],
+  "title": "ModelProviderConfig",
+  "type": "object"
+}

@@ -1,0 +1,270 @@
+{
+  "$defs": {
+    "DataCategory": {
+      "description": "Categories of data the agent processes.",
+      "enum": [
+        "none",
+        "personal",
+        "special-category",
+        "financial",
+        "operational"
+      ],
+      "title": "DataCategory",
+      "type": "string"
+    },
+    "Dependency": {
+      "description": "A runtime or build dependency discovered in the manifest.",
+      "properties": {
+        "manifest": {
+          "default": "",
+          "title": "Manifest",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Dependency",
+      "type": "object"
+    },
+    "ModelConfiguration": {
+      "description": "Model configuration observed in the agent's code.",
+      "properties": {
+        "api_base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Base"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelConfiguration",
+      "type": "object"
+    },
+    "Permission": {
+      "description": "A single permission or scope the agent exercises.",
+      "properties": {
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Permission",
+      "type": "object"
+    },
+    "PromptEntry": {
+      "description": "A prompt or instruction file discovered in the agent's code.",
+      "properties": {
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content_hash"
+      ],
+      "title": "PromptEntry",
+      "type": "object"
+    },
+    "Provenance": {
+      "description": "Records where a profile field came from.\n\nEvery scanner-derived field carries one. Malformed provenance (missing\npath or hash) fails validation.",
+      "properties": {
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "content_hash"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ProvenancedField_ModelConfiguration_": {
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "value": {
+          "$ref": "#/$defs/ModelConfiguration"
+        }
+      },
+      "required": [
+        "value",
+        "provenance"
+      ],
+      "title": "ProvenancedField[ModelConfiguration]",
+      "type": "object"
+    },
+    "ProvenancedField_list_DataCategory__": {
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "value": {
+          "items": {
+            "$ref": "#/$defs/DataCategory"
+          },
+          "title": "Value",
+          "type": "array"
+        }
+      },
+      "required": [
+        "value",
+        "provenance"
+      ],
+      "title": "ProvenancedField[list[DataCategory]]",
+      "type": "object"
+    },
+    "ProvenancedField_list_Dependency__": {
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "value": {
+          "items": {
+            "$ref": "#/$defs/Dependency"
+          },
+          "title": "Value",
+          "type": "array"
+        }
+      },
+      "required": [
+        "value",
+        "provenance"
+      ],
+      "title": "ProvenancedField[list[Dependency]]",
+      "type": "object"
+    },
+    "ProvenancedField_list_Permission__": {
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "value": {
+          "items": {
+            "$ref": "#/$defs/Permission"
+          },
+          "title": "Value",
+          "type": "array"
+        }
+      },
+      "required": [
+        "value",
+        "provenance"
+      ],
+      "title": "ProvenancedField[list[Permission]]",
+      "type": "object"
+    },
+    "ProvenancedField_list_PromptEntry__": {
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "value": {
+          "items": {
+            "$ref": "#/$defs/PromptEntry"
+          },
+          "title": "Value",
+          "type": "array"
+        }
+      },
+      "required": [
+        "value",
+        "provenance"
+      ],
+      "title": "ProvenancedField[list[PromptEntry]]",
+      "type": "object"
+    }
+  },
+  "description": "The governance-specific extension block of an AgentProfile.\n\nEach field is provenance-tracked because the scanner derives it from code.",
+  "properties": {
+    "data_categories": {
+      "$ref": "#/$defs/ProvenancedField_list_DataCategory__"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/ProvenancedField_list_Dependency__"
+    },
+    "model_configuration": {
+      "$ref": "#/$defs/ProvenancedField_ModelConfiguration_"
+    },
+    "permissions_surface": {
+      "$ref": "#/$defs/ProvenancedField_list_Permission__"
+    },
+    "prompt_inventory": {
+      "$ref": "#/$defs/ProvenancedField_list_PromptEntry__"
+    }
+  },
+  "required": [
+    "model_configuration",
+    "permissions_surface",
+    "data_categories",
+    "dependencies",
+    "prompt_inventory"
+  ],
+  "title": "GovernanceExtension",
+  "type": "object"
+}
