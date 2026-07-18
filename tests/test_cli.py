@@ -12,13 +12,8 @@ from autogovern.cli import app
 runner = CliRunner()
 
 # Stubs that still exit 0 with a not-implemented message.
-# (scan is fully implemented in Phase 4; init in Phase 5; generate exits 1
-# without config.)
-ZERO_EXIT_STUBS = [
-    ("diff", "diff: not implemented"),
-    ("check", "check: not implemented"),
-    ("hook", "hook: not implemented"),
-]
+# (scan, init, generate, check, diff, explain, hook are all implemented.)
+ZERO_EXIT_STUBS: list[tuple[str, str]] = []
 
 
 @pytest.mark.parametrize("command, expected_prefix", ZERO_EXIT_STUBS)

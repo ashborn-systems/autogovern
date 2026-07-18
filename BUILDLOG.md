@@ -231,3 +231,7 @@ One line per phase: date, phase number, validation result. Detailed completion n
   - **Lockfile line-stability**: `serialise_profile` uses `yaml.safe_dump(..., sort_keys=True, default_flow_style=False)`. Two serialisations of the same profile are byte-identical, so `git diff` on `profile.lock` is minimal and meaningful — each line change is a real field change.
 
   Validation: ruff check clean, ruff format clean, mypy strict (32 source files, no issues), pytest 199 passed (5 CLI + 20 init + 21 pack + 17 generate + 16 detect + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 35 secrets). The secrets-discipline grep now scans 35 source files (was 31), auto-covering the three new detect modules. No live LLM call in any test.
+
+- 2026-07-18 — Phase 10 (check, fix, diff, explain, hooks, CI writers) — PASS: `pytest tests/test_check.py` green (18 tests: acceptance criterion 2 check→fix→check cycle, --strict on advisory, --json on check/diff/explain, pre-commit hook installed+fast+executable, hook CLI command, --local-enforce pre-push, CI writers for GitHub/Forgejo/Bitbucket/generic with remote detection, --model override); `make check-all` green (ruff + mypy + 216 tests).
+
+  Built `check.py` (five-step check sequence with CheckResult), `explain.py` (frontmatter provenance rendering), real `hooks/__init__.py` (pre-commit hook + forge-aware CI writers for GitHub/Forgejo/Bitbucket/generic), wired all CLI commands + global flags (--json, --config, --model, --strict).

@@ -209,12 +209,20 @@ def test_init_defaults_prints_next_steps(clean_cwd: Path, provider_env: None) ->
     assert "autogovern generate" in result.output
 
 
-def test_init_defaults_marks_hooks_and_ci_as_phase10(clean_cwd: Path, provider_env: None) -> None:
+def test_init_defaults_installs_hooks_and_ci(
+    clean_cwd: Path, provider_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """init installs the pre-commit hook and writes CI config."""
+    monkeypatch.chdir(clean_cwd)
+    # init git so hook installation finds .git
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=clean_cwd, capture_output=True)
     result = runner.invoke(app, ["init", "--defaults"])
     assert result.exit_code == 0, result.output
-    assert "Phase 10" in result.output
-    assert "pre-commit" in result.output.lower()
+    assert "pre-commit hook" in result.output.lower()
     assert "CI" in result.output
+    assert (clean_cwd / ".git" / "hooks" / "pre-commit").is_file()
 
 
 def test_init_defaults_no_hooks_skips_hook_message(clean_cwd: Path, provider_env: None) -> None:

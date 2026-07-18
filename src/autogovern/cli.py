@@ -12,6 +12,7 @@ from pathlib import Path
 
 import typer
 
+from autogovern.check import run_check
 from autogovern.config_loader import (
     ConfigInvalidError,
     ConfigNotFoundError,
@@ -28,7 +29,9 @@ from autogovern.context import (
     load_context_from_file,
     write_init,
 )
+from autogovern.explain import explain_document
 from autogovern.generate import generate_docs
+from autogovern.hooks import install_pre_commit_hook
 from autogovern.ingest import ScanResult, scan_repo
 from autogovern.models import Config, ContextManifest, ModelProviderConfig
 from autogovern.provider import build_provider
@@ -197,9 +200,10 @@ def scan(
         False, "--no-write-card", help="Do not write .well-known/agent.json."
     ),
     config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
+    model: str | None = typer.Option(None, "--model", help="Override the configured model."),
 ) -> None:
     """Build and print the AgentProfile (writes AgentCard if absent)."""
-    cfg = _load_config_or_env_or_exit(config)
+    cfg = _load_config_or_env_or_exit(config, model)
     provider = build_provider(cfg)
     try:
         result = scan_repo(path, cfg, provider=provider, write_card=not no_write_card)
@@ -217,9 +221,11 @@ def scan(
 def generate(
     path: Path = typer.Argument(Path("."), help="Repository root to generate docs for."),
     config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
+    model: str | None = typer.Option(None, "--model", help="Override the configured model."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
     """Full or incremental doc generation into governance/."""
-    cfg = _load_config_or_env_or_exit(config)
+    cfg = _load_config_or_env_or_exit(config, model)
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
     try:
@@ -238,6 +244,20 @@ def generate(
     finally:
         provider.close()
 
+    if json_output:
+        import json as _json
+
+        typer.echo(
+            _json.dumps(
+                {
+                    "regenerated": result.regenerated,
+                    "skipped": result.skipped,
+                    "llm_calls": result.llm_call_count,
+                }
+            )
+        )
+        return
+
     if result.changed:
         typer.echo(f"generate: regenerated {len(result.regenerated)} document(s):")
         for doc in result.regenerated:
@@ -253,29 +273,135 @@ def generate(
 
 
 @app.command()
-def diff() -> None:
+def diff(
+    path: Path = typer.Argument(Path("."), help="Repository root."),
+    config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
+    model: str | None = typer.Option(None, "--model", help="Override the configured model."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
     """Show which sections would change and why, without writing."""
-    typer.echo("diff: not implemented (Phase 10)")
+    cfg = _load_config_or_env_or_exit(config, model)
+    context, context_from_file = _load_context_or_default_or_exit()
+    provider = build_provider(cfg)
+    try:
+        result = run_check(
+            path,
+            cfg,
+            context,
+            provider=provider,
+            strict=False,
+            fix=False,
+            context_from_file=context_from_file,
+        )
+    finally:
+        provider.close()
+
+    if json_output:
+        import json as _json
+
+        typer.echo(_json.dumps(result.to_dict()))
+        return
+
+    if result.current:
+        typer.echo("diff: governance is current, no changes detected.")
+    else:
+        typer.echo(f"diff: score {result.score} ({result.band})")
+        typer.echo(f"  changed fields: {', '.join(result.changed_fields)}")
+        typer.echo(f"  stale sections: {', '.join(result.stale_sections)}")
+        typer.echo(f"  remediation: {result.remediation}")
 
 
 @app.command()
-def check() -> None:
+def check(
+    path: Path = typer.Argument(Path("."), help="Repository root."),
+    config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
+    model: str | None = typer.Option(None, "--model", help="Override the configured model."),
+    strict: bool = typer.Option(False, "--strict", help="Treat advisory scores as failures."),
+    fix: bool = typer.Option(False, "--fix", help="Regenerate stale sections in place."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
     """CI gate: report stale docs; --fix regenerates in place."""
-    typer.echo("check: not implemented (Phase 10)")
+    cfg = _load_config_or_env_or_exit(config, model)
+    context, context_from_file = _load_context_or_default_or_exit()
+    provider = build_provider(cfg)
+    try:
+        result = run_check(
+            path,
+            cfg,
+            context,
+            provider=provider,
+            strict=strict,
+            fix=fix,
+            context_from_file=context_from_file,
+        )
+    finally:
+        provider.close()
+
+    if json_output:
+        import json as _json
+
+        typer.echo(_json.dumps(result.to_dict()))
+    elif result.current:
+        typer.echo("check: governance is current.")
+    elif result.fixed:
+        typer.echo(
+            f"check --fix: regenerated {len(result.stale_sections)} section(s), lockfile updated."
+        )
+    else:
+        typer.echo(f"check: STALE (score {result.score}, {result.band})")
+        typer.echo(f"  stale sections: {', '.join(result.stale_sections)}")
+        typer.echo(f"  remediation: {result.remediation}")
+
+    # Exit code: 0 if current or (advisory and not strict), 1 if material or (advisory and strict).
+    if result.current:
+        raise typer.Exit(code=0)
+    if result.band == "advisory" and not strict:
+        raise typer.Exit(code=0)
+    if result.fixed:
+        raise typer.Exit(code=0)
+    raise typer.Exit(code=1)
 
 
 @app.command()
 def explain(
-    doc: str = typer.Argument(help="Document to explain provenance and verification for."),
+    doc: str = typer.Argument(help="Document name or path to explain."),
+    config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
 ) -> None:
-    """Plain-language provenance and verification status for a document."""
-    typer.echo(f"explain {doc}: not implemented (Phase 10)")
+    """Plain-language provenance for a document."""
+    governance_dir = Path("governance")
+    result = explain_document(Path(doc), governance_dir)
+
+    if json_output:
+        import json as _json
+
+        typer.echo(_json.dumps(result, default=str))
+        return
+
+    if "error" in result:
+        typer.echo(str(result["error"]), err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Document: {result['document']}")
+    typer.echo(f"Generated: {result['generated']}")
+    typer.echo(f"Agent version: {result['agent_version']}")
+    typer.echo(f"Generator: {result['generator_version']}")
+    typer.echo(f"Framework pack: {result['framework_pack_version']}")
+    typer.echo(f"Input files: {result['input_files']}")
+    typer.echo(f"Body lines: {result['body_lines']}")
 
 
 @app.command()
-def hook() -> None:
+def hook(
+    install: bool = typer.Option(True, "--install", help="Install hooks (default action)."),
+    local_enforce: bool = typer.Option(
+        False, "--local-enforce", help="Also install the pre-push hook."
+    ),
+) -> None:
     """Re-install hooks manually if needed."""
-    typer.echo("hook: not implemented (Phase 10)")
+    root = Path.cwd()
+    msg = install_pre_commit_hook(root, local_enforce=local_enforce)
+    typer.echo(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -283,16 +409,21 @@ def hook() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_config_or_env_or_exit(config: Path | None) -> Config:
+def _load_config_or_env_or_exit(config: Path | None, model: str | None = None) -> Config:
     """Load config from disk or env vars, exiting non-zero if neither exists."""
     try:
-        return load_config_or_env(config)
+        cfg = load_config_or_env(config)
     except ConfigNotFoundError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     except ConfigInvalidError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+    if model is not None:
+        cfg = cfg.model_copy(
+            update={"model_provider": cfg.model_provider.model_copy(update={"model": model})}
+        )
+    return cfg
 
 
 def _load_context_or_default_or_exit() -> tuple[ContextManifest, bool]:
