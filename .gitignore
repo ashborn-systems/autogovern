@@ -221,3 +221,6 @@ __pycache__/
 .pytest_cache/
 governance/
 .autogovern/runs/
+
+# Internal build process documents (kept locally, never published)
+docs/

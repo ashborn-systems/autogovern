@@ -12,8 +12,8 @@ of scope for this build but the architecture leaves clean seams for them.
 
 Remote: `https://github.com/ashborn-systems/autogovern`
 
-The spec (`docs/SPEC.md`) and phased build plan (`docs/BUILDPLAN.md`) live in
-`docs/`. The build log (`docs/BUILDLOG.md`) records one line per phase. The
+The spec, phased build plan, and build log are internal process documents,
+kept locally in `docs/` (gitignored — never committed or published). The
 framework pack ships inside the package at `src/autogovern/frameworks/`.
 
 ## Build & test commands (exact flags matter)
@@ -115,4 +115,4 @@ tests/
 
 Phases 0-13 are complete (the full build plan). A post-build hardening pass
 (review-driven bug fixes, dead-code removal, semver doc versioning) is
-recorded in `docs/BUILDLOG.md`. See `docs/BUILDPLAN.md` and `docs/BUILDLOG.md`.
+recorded locally in `docs/BUILDLOG.md` (not committed).
