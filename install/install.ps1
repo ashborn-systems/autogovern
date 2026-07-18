@@ -1,5 +1,5 @@
 # autogovern installer for Windows (PowerShell).
-# Usage: irm https://autogovern.dev/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/ashborn-systems/autogovern/main/install/install.ps1 | iex
 $ErrorActionPreference = "Stop"
 
 # Install uv if absent.
@@ -9,8 +9,8 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 }
 
-Write-Host "Installing auto-govern..."
-uv tool install auto-govern
+Write-Host "Installing autogovern..."
+uv tool install autogovern
 
 if (-not (Get-Command autogovern -ErrorAction SilentlyContinue)) {
     Write-Host ""

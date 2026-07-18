@@ -64,6 +64,26 @@ class ProviderClient:
         self._max_retries = max_retries
         self._client = client or httpx.Client(timeout=30.0)
         self._owns_client = client is None
+        self._usage_prompt = 0
+        self._usage_completion = 0
+        self._usage_total = 0
+        self._usage_reported = False
+
+    @property
+    def total_usage(self) -> dict[str, int | None] | None:
+        """Aggregated token usage across all calls on this client.
+
+        Returns None when the provider never reported usage (counts are
+        never fabricated). Individual fields are None when that count was
+        not reported.
+        """
+        if not self._usage_reported:
+            return None
+        return {
+            "prompt": self._usage_prompt if self._usage_prompt else None,
+            "completion": self._usage_completion if self._usage_completion else None,
+            "total": self._usage_total if self._usage_total else None,
+        }
 
     def close(self) -> None:
         """Close the underlying HTTP client if we own it."""
@@ -194,12 +214,27 @@ class ProviderClient:
 
             try:
                 result: dict[str, Any] = response.json()
-                return result
             except json.JSONDecodeError as exc:
                 raise ProviderResponseError(f"Provider returned non-JSON body: {exc}") from exc
+            usage = result.get("usage")
+            if isinstance(usage, dict):
+                self._record_usage(usage)
+            return result
 
         # Unreachable, but keeps mypy happy.
         raise ProviderUnreachableError(f"Exhausted retries contacting provider: {last_exc}")
+
+    def _record_usage(self, usage: dict[str, Any]) -> None:
+        """Accumulate a response's usage block, when the provider sends one."""
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        total = usage.get("total_tokens")
+        if not any(isinstance(v, int) for v in (prompt, completion, total)):
+            return
+        self._usage_reported = True
+        self._usage_prompt += prompt if isinstance(prompt, int) else 0
+        self._usage_completion += completion if isinstance(completion, int) else 0
+        self._usage_total += total if isinstance(total, int) else 0
 
     def _build_headers(self) -> dict[str, str]:
         key = self._read_key()

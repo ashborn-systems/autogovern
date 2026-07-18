@@ -21,10 +21,9 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 _PRE_COMMIT_HOOK_CONTENT = """#!/bin/sh
-# autogovern pre-commit hook (warning-only, heuristic pass, no LLM)
+# autogovern pre-commit hook (warning-only heuristic pass, no LLM, never blocks)
 # Installed by `autogovern init`. Re-install with `autogovern hook install`.
-. "$(git rev-parse --git-dir)/hooks/util.sh" 2>/dev/null || true
-echo "[autogovern] heuristic check: skipped in offline mode (run 'autogovern check' in CI)"
+autogovern hook run --staged || true
 """
 
 _PRE_PUSH_HOOK_CONTENT = """#!/bin/sh
@@ -35,11 +34,6 @@ autogovern check --json || {
     echo "[autogovern] check failed. Run 'autogovern generate' to fix."
     exit 1
 }
-"""
-
-_HOOK_UTIL_NAME = "util.sh"
-_HOOK_UTIL_CONTENT = """# Shared hook utilities for autogovern.
-# Currently a placeholder for future shared hook logic.
 """
 
 
@@ -70,11 +64,6 @@ def install_pre_commit_hook(root: Path, *, local_enforce: bool = False) -> str:
         pp_path.chmod(0o755)
         messages.append("pre-push hook: installed (--local-enforce, full check)")
 
-    # Shared util.
-    util_path = hooks_dir / _HOOK_UTIL_NAME
-    if not util_path.exists():
-        util_path.write_text(_HOOK_UTIL_CONTENT)
-
     return "; ".join(messages)
 
 
@@ -96,7 +85,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install auto-govern
+      - run: pip install autogovern
       - run: autogovern check --json
         env:
           {api_key_env}: ${{{{ secrets.{api_key_env} }}}}
@@ -116,7 +105,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install auto-govern
+      - run: pip install autogovern
       - run: autogovern check --json
         env:
           {api_key_env}: ${{{{ secrets.{api_key_env} }}}}
@@ -129,14 +118,14 @@ pipelines:
     - step:
         name: autogovern check
         script:
-          - pip install auto-govern
+          - pip install autogovern
           - autogovern check --json
         env:
           {api_key_env}: ${api_key_env}
 """
 
 GENERIC_CI_COMMAND = (
-    "pip install auto-govern && autogovern check --json\n"
+    "pip install autogovern && autogovern check --json\n"
     "# Set the {api_key_env} environment variable in your CI secrets."
 )
 

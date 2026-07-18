@@ -134,7 +134,6 @@ class Pack:
     pack_dir: Path
     frameworks: list[FrameworkEntry]
     style_authority: ResolvedSection
-    verifier_rubric: ResolvedSection
     document_feeds: dict[str, DocumentFeed]
     enterprise_hooks: dict[str, ResolvedSection]
     scope_notes: list[str]
@@ -256,6 +255,29 @@ def _section_body(lines: list[str], heading_index: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Field name → graph input mapping
+# ---------------------------------------------------------------------------
+
+
+def to_graph_input(field: str) -> str | None:
+    """Convert a profile/context diff field name to a graph input path.
+
+    The diff uses field names like ``governance.model_configuration``;
+    the graph declares inputs like ``profile.governance.model_configuration``.
+    Prompt inventory sub-fields (``.paths`` / ``.content``) collapse to the
+    single graph input ``profile.governance.prompt_inventory``. Returns None
+    for fields no document consumes.
+    """
+    if field.startswith("governance.prompt_inventory."):
+        return "profile.governance.prompt_inventory"
+    if field.startswith("governance.") or field in ("name", "description", "version"):
+        return f"profile.{field}"
+    if field.startswith("context."):
+        return field
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
 
@@ -288,7 +310,6 @@ def load_pack(pack_dir: Path | None = None) -> Pack:
 
     frameworks = _load_frameworks(raw.get("frameworks", []), root)
     style_authority = _resolve_one(raw, "style_authority", root)
-    verifier_rubric = _resolve_one(raw, "verifier_rubric", root)
     enterprise_hooks = _load_enterprise_hooks(raw.get("enterprise_hooks", {}), root)
     scope_notes = _collect_scope_notes(frameworks)
     feeds, graph = _load_document_feeds(raw.get("document_feeds", {}), root)
@@ -299,7 +320,6 @@ def load_pack(pack_dir: Path | None = None) -> Pack:
         pack_dir=root,
         frameworks=frameworks,
         style_authority=style_authority,
-        verifier_rubric=verifier_rubric,
         document_feeds=feeds,
         enterprise_hooks=enterprise_hooks,
         scope_notes=scope_notes,
@@ -395,4 +415,5 @@ __all__ = [
     "SectionDependencyGraph",
     "load_pack",
     "resolve_section",
+    "to_graph_input",
 ]

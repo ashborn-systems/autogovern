@@ -1,8 +1,8 @@
 """The ``explain`` command: plain-language provenance for a document.
 
 Reads a document's frontmatter and renders its provenance in plain language:
-when it was generated, from what inputs (file hashes), and whether any
-sections are stale relative to the current profile.
+when it was generated, from which generator and framework pack versions, and
+which input files (by content hash) fed it.
 """
 
 from __future__ import annotations

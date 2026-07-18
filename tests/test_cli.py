@@ -1,27 +1,10 @@
-"""CLI eval harness — parametrised over the stub commands.
+"""CLI tests: the --help surface. All commands are implemented."""
 
-The ``generate`` command is wired to the config loader (Phase 2) so it exits
-non-zero without a config; the other stubs still exit 0.
-"""
-
-import pytest
 from typer.testing import CliRunner
 
 from autogovern.cli import app
 
 runner = CliRunner()
-
-# Stubs that still exit 0 with a not-implemented message.
-# (scan, init, generate, check, diff, explain, hook are all implemented.)
-ZERO_EXIT_STUBS: list[tuple[str, str]] = []
-
-
-@pytest.mark.parametrize("command, expected_prefix", ZERO_EXIT_STUBS)
-def test_stub_commands_exit_zero(command: str, expected_prefix: str) -> None:
-    """Stub commands exit 0 and print a not-implemented message."""
-    result = runner.invoke(app, [command])
-    assert result.exit_code == 0
-    assert result.stdout.startswith(expected_prefix)
 
 
 def test_help_lists_all_commands() -> None:

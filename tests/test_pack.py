@@ -55,13 +55,6 @@ def test_style_authority_resolves(pack: Pack) -> None:
     assert "em-dash" in lowered or "em dash" in lowered
 
 
-def test_verifier_rubric_resolves_whole_file(pack: Pack) -> None:
-    """The verifier rubric is a whole-file reference (no fragment)."""
-    assert "rubric" in pack.verifier_rubric.title.lower()
-    # Whole-file content includes the H1.
-    assert pack.verifier_rubric.content.lstrip().startswith("# ")
-
-
 def test_enterprise_hooks_resolve(pack: Pack) -> None:
     assert {"scheduled_drift", "agentguard_evidence"} <= set(pack.enterprise_hooks)
     for hook in pack.enterprise_hooks.values():
@@ -112,7 +105,7 @@ def test_data_protection_has_no_template_but_has_knowledge(pack: Pack) -> None:
 
 
 def test_scope_notes_collected(pack: Pack) -> None:
-    """Framework scope notes are surfaced on the pack for the verifier."""
+    """Framework scope notes are surfaced on the loaded pack."""
     joined = "\n".join(pack.scope_notes)
     assert "rubric.md" in joined
     assert "frameworks.md" in joined
@@ -188,7 +181,6 @@ def test_dangling_file_reference_named(tmp_path: Path) -> None:
           version: 0.0.1
         frameworks: []
         style_authority: real.md
-        verifier_rubric: real.md
         document_feeds:
           system-card.md:
             templates: [missing.md#1]
@@ -212,7 +204,6 @@ def test_dangling_numbered_reference_named(tmp_path: Path) -> None:
           version: 0.0.1
         frameworks: []
         style_authority: real.md
-        verifier_rubric: real.md
         document_feeds:
           system-card.md:
             templates: [real.md#99]
@@ -237,7 +228,6 @@ def test_dangling_slug_reference_named(tmp_path: Path) -> None:
           version: 0.0.1
         frameworks: []
         style_authority: real.md#no-such-heading
-        verifier_rubric: real.md
         document_feeds: {}
         enterprise_hooks: {}
         """,
@@ -262,7 +252,6 @@ def test_dangling_framework_file_reference_named(tmp_path: Path) -> None:
                 files:
                   knowledge_base: ghost/missing.md
             style_authority: real.md
-            verifier_rubric: real.md
             document_feeds: {}
             enterprise_hooks: {}
             """

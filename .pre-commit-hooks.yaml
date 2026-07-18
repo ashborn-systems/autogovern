@@ -1,7 +1,6 @@
 - id: autogovern-check
-  name: autogovern check
-  description: Check if governance documentation is current
-  entry: autogovern check
+  name: autogovern governance impact
+  description: Warning-only heuristic check for governance impact (never blocks, no LLM)
+  entry: autogovern hook run
   language: python
-  types: [python]
-  pass_filenames: false
+  pass_filenames: true

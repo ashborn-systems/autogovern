@@ -2,12 +2,12 @@
 
 Each section prompt receives only its declared inputs plus the pack sections
 that supply it. The style authority is embedded as a fixed preamble so every
-generation call is governed by the same writing rules; the verifier (Phase 8)
-also checks adherence.
+generation call is governed by the same writing rules; the generation prompt
+is the single place quality is enforced (there is no verifier pass).
 
-The preamble is exported as :data:`STYLE_PREAMBLE` so Phase 7's snapshot test
-can assert the banned-constructions instruction block is present in every
-generated prompt.
+The preamble is exported as :data:`STYLE_PREAMBLE` so the style snapshot
+test can assert the banned-constructions instruction block is present in
+every generated prompt.
 """
 
 from __future__ import annotations
@@ -22,8 +22,7 @@ from autogovern.frameworks import DocumentFeed, ResolvedSection
 # check. Edit deliberately; the snapshot test will flag any drift.
 STYLE_PREAMBLE = """\
 You are writing governance documentation for an AI agent. Follow these \
-writing rules strictly. They are enforced by a verifier pass that rejects \
-non-conforming output.
+writing rules strictly.
 
 - Write in plain declarative sentences.
 - Use concrete thresholds and figures. State the assumption behind every number.

@@ -256,3 +256,82 @@ One line per phase: date, phase number, validation result. Detailed completion n
   5. pre-commit hook < 500ms, never blocks
   6. vanilla mode works without init, enhanced mode with init
   7. GitHub Action exists and wraps check/generate
+
+- 2026-07-18 — Post-build hardening (review-driven) — PASS: `make check-all` green (ruff + format + mypy + 274 tests, 1 smoke skipped by design).
+
+  **Hardening notes:**
+
+  A full codebase review after Phase 13 found functional bugs the phase gates
+  had missed (mostly tests encoding the wrong contract), plus dead code and
+  spec drift. All fixes verified against fixtures; regression tests added.
+
+  Bugs fixed (each now covered by a named test):
+  1. `check` exited 1 on immaterial changes (dependency-only edits, renames):
+     the CLI's exit logic had no immaterial branch. Exit-code logic is now a
+     single source of truth (`CheckResult.exit_code`); the strict-mode
+     "construct a second CheckResult" hack was removed from both check paths.
+  2. Prompt changes reported zero stale sections: `_to_graph_input` mapped
+     `governance.prompt_inventory.*` to a graph input that does not exist,
+     and the correcting branch was unreachable. The mapping now lives in the
+     pack loader (`to_graph_input`) shared by check and versioning.
+  3. Context edits were invisible to `check`: `run_check` never wired the
+     context through detection. `generate` now writes `governance/context.lock`
+     and `check` diffs against it (autonomy/risk appetite score material,
+     other context fields advisory). The detection seam built in Phase 9 is
+     now actually connected.
+  4. The installed pre-commit hook was a stub echo. It now runs
+     `autogovern hook run --staged` (heuristic pass, prints
+     `governance impact: yes/no` with matched paths, `|| true` so it never
+     blocks). `.pre-commit-hooks.yaml` previously ran full `check` (blocking,
+     LLM possible) and now points at `hook run`. Criterion-5 test rewritten
+     to assert the real flag in <500ms.
+  5. `autogovern hook install` (the spec's documented command) errored;
+     `hook` is now a sub-command group with `install` and `run`.
+  6. `init` wrote CI referencing the default OPENROUTER_API_KEY regardless of
+     the configured `api_key_env`; it now passes the configured name.
+  7. `--profile` with a missing/invalid file dumped a traceback; clean exit 1.
+  8. CHANGELOG.md was written even when `documents.changelog: false`.
+  9. `.env.example`/`.env` used the wrong env-var names (`MODEL_PROVIDER_*`
+     vs the live `AUTOGOVERN_*`); fixed, secrets test updated.
+  10. Package name drift (`autogovern` vs `auto-govern`) unified to
+      `autogovern` everywhere (SPEC, README, install scripts, action, CI
+      writer templates), per AGENTS.md constraint 7. SPEC text updated.
+
+  Dead code removed: `config.py` (unused; crashed on import without env vars;
+  sole pydantic-settings consumer), `jinja2` and `pydantic-settings` deps,
+  `VerifierResult`/`AttentionItem` models + schemas + tests (Phase 8 rework
+  leftovers), `verifier_rubric` pack loading, `_DETERMINISTIC_FIELDS`,
+  `DetectionResult.stale_sections` placeholder, the empty-param CLI test,
+  stray `templates/` dir, the "enforced by a verifier pass" claim in the
+  generation preamble.
+
+  Features built:
+  - **Semver `doc_version`** (`versioning/` module): regenerated docs bump
+    major/minor/patch by the spec's versioning rules, classified from the
+    lockfile diff via the dependency graph; first generation stamps 0.1.0;
+    legacy hash versions restart at 0.1.0. Spec-contradiction resolution
+    (tools in both "permissions" and "tool change"): tool add/remove is
+    minor, env/scope change is major; risk appetite is minor. CHANGELOG
+    entries now record per-doc version bumps, significance, and materiality.
+  - Provider `usage` blocks are aggregated (`ProviderClient.total_usage`)
+    and recorded in run manifests (null, never fabricated, when unreported).
+  - `tests/test_smoke.py` for `make smoke` (live provider, AUTOGOVERN_SMOKE=1).
+  - GitHub Action is provider-neutral (api_base/model/api_key_env inputs)
+    and `--fix` mode commits regenerated docs (contents: write permission).
+  - CI now runs the format gate too (local/CI parity).
+
+  Efficiency: lockfile writes are content-addressed (no mtime churn on no-op
+  runs), `_generator_version` is cached, `_atomic_write` duplicated
+  implementations consolidated into `write_if_changed`.
+
+  Spec divergences recorded (per repo rule 1):
+  - `site/` install page (Phase 13) descoped: no domain/hosting exists yet.
+    README leads with PyPI installs; curl installers use the GitHub raw URL.
+    Recorded on the README roadmap.
+  - Global flags: spec says "every command" accepts --json/--config/--model/
+    --strict; implemented on scan/generate/diff/check/explain only (init and
+    hook have nothing to override). README wording corrected.
+  - `templates/` (Jinja2) removed from SPEC/BUILDPLAN layout: generation
+    prompts are built in code (`generate/prompts.py`), no Jinja2 anywhere.
+
+- 2026-07-18 — Repo reorganisation + release docs — PASS: `make check-all` green (274 tests, 1 smoke skipped). Process documents moved to `docs/` (SPEC, BUILDPLAN, BUILDLOG; `git mv`, history preserved); README, CHANGELOG, AGENTS.md stay at root per their conventions. SPEC aligned to reality (global flags scope, deterministic version classification, `generate` owns both lockfiles, `--release` marked roadmap, install site descoped). CHANGELOG folded into a single 0.1.0 initial-release entry (0.1.0 was never published). Wheel rebuilt and verified in a fresh venv: `autogovern --help` works.

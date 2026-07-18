@@ -18,12 +18,14 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
+from autogovern.detect.diff import diff_context, diff_profiles
 from autogovern.frameworks import DocumentFeed, Pack, load_pack
 from autogovern.generate.frontmatter import (
     build_frontmatter,
-    existing_section_hashes,
     now_iso,
     parse_frontmatter,
     render_document,
@@ -33,11 +35,28 @@ from autogovern.generate.inputs import (
     extract_input,
     profile_file_hashes,
 )
-from autogovern.generate.lockfile import write_lockfile
+from autogovern.generate.lockfile import (
+    read_context_lock,
+    read_lockfile,
+    write_context_lock,
+    write_lockfile,
+)
 from autogovern.generate.prompts import build_section_messages
 from autogovern.generate.writer import write_if_changed
-from autogovern.models import AgentProfile, Config, ContextManifest
+from autogovern.models import (
+    AgentProfile,
+    Config,
+    ContextManifest,
+    MaterialityResult,
+)
 from autogovern.provider import ProviderClient
+from autogovern.versioning import (
+    INITIAL_VERSION,
+    BumpLevel,
+    doc_bump_levels,
+    most_significant,
+    next_version,
+)
 
 GOVERNANCE_DIR = Path("governance")
 
@@ -67,6 +86,8 @@ class GenerationResult:
     llm_call_count: int = 0
     written_files: list[Path] = field(default_factory=list)
     pack_version: str = ""
+    # doc -> (old doc_version or None, new doc_version, bump level)
+    version_changes: dict[str, tuple[str | None, str, str]] = field(default_factory=dict)
 
     @property
     def changed(self) -> bool:
@@ -82,16 +103,25 @@ def generate_docs(
     provider: ProviderClient,
     pack: Pack | None = None,
     context_from_file: bool = True,
+    materiality: MaterialityResult | None = None,
 ) -> GenerationResult:
     """Generate or incrementally update the governance document set.
 
     Writes into ``<root>/governance/``. Only sections whose input hash changed
     are re-rendered (one LLM call each); the rest are left untouched. The
-    profile lockfile is written on every run (content-addressed, so a no-op
-    when the profile is unchanged).
+    profile and context lockfiles are written on every run (content-addressed,
+    so a no-op when unchanged).
+
+    Each regenerated document's ``doc_version`` is semver-bumped according to
+    the significance of the change that caused it (see
+    :mod:`autogovern.versioning`); first generation stamps ``0.1.0``.
 
     When ``context_from_file`` is False (vanilla mode), ATTENTION.md notes
     that docs are generic because no context manifest was loaded.
+
+    ``materiality`` is the detection result when regeneration follows a
+    ``check --fix``; it is recorded in the changelog entry. None means the
+    run was not scored (plain ``generate``).
 
     The provider lifecycle is owned by the caller; this function does not
     close it.
@@ -104,6 +134,7 @@ def generate_docs(
     file_hashes = profile_file_hashes(profile)
     enabled = _enabled_documents(config)
     timestamp = now_iso()
+    bump_levels = _compute_bump_levels(governance_dir, profile, context, pack)
 
     for doc in LLM_DOCS:
         if doc not in enabled:
@@ -122,11 +153,38 @@ def generate_docs(
             file_hashes,
             result,
             timestamp,
+            bump_levels,
         )
 
-    _write_engine_docs(governance_dir, config, pack, profile, result, timestamp, context_from_file)
+    _write_engine_docs(
+        governance_dir, config, pack, profile, result, timestamp, context_from_file, materiality
+    )
     write_lockfile(governance_dir, profile)
+    write_context_lock(governance_dir, context)
     return result
+
+
+def _compute_bump_levels(
+    governance_dir: Path,
+    profile: AgentProfile,
+    context: ContextManifest,
+    pack: Pack,
+) -> dict[str, BumpLevel] | None:
+    """Per-document version bump levels, or None on first generation.
+
+    Diffs the locked state (profile + context) against the current inputs and
+    classifies each affected document via the dependency graph. None means no
+    lockfile exists, so every document starts at ``0.1.0``.
+    """
+    locked_profile = read_lockfile(governance_dir)
+    if locked_profile is None:
+        return None
+    diff = diff_profiles(locked_profile, profile)
+    locked_context = read_context_lock(governance_dir)
+    if locked_context is not None:
+        ctx_diff = diff_context(locked_context, context)
+        diff.fields.extend(ctx_diff.fields)
+    return doc_bump_levels(diff.fields, pack.graph)
 
 
 # ---------------------------------------------------------------------------
@@ -145,12 +203,13 @@ def _maybe_regenerate_llm_doc(
     file_hashes: dict[str, str],
     result: GenerationResult,
     timestamp: str,
+    bump_levels: dict[str, BumpLevel] | None,
 ) -> None:
     declared = _resolve_declared_inputs(feed, profile, context)
     new_hash = compute_section_hash(declared, [s.content for s in feed.pack_sections], pack.version)
 
-    existing_hash = _existing_hash(path, doc)
-    if existing_hash == new_hash and path.is_file():
+    existing_fm = _read_frontmatter(path)
+    if _section_hash_for(existing_fm, doc) == new_hash and path.is_file():
         result.skipped.append(doc)
         return
 
@@ -159,8 +218,12 @@ def _maybe_regenerate_llm_doc(
     result.llm_call_count += 1
     result.regenerated.append(doc)
 
+    old_version = _version_string(existing_fm.get("doc_version"))
+    new_version, level = _stamped_version(existing_fm.get("doc_version"), doc, bump_levels)
+    result.version_changes[doc] = (old_version, new_version, level)
+
     frontmatter = build_frontmatter(
-        doc_version=_short_hash(new_hash),
+        doc_version=new_version,
         agent_version=profile.version,
         generated=timestamp,
         generator_version=_generator_version(),
@@ -183,10 +246,41 @@ def _resolve_declared_inputs(
     return declared
 
 
-def _existing_hash(path: Path, doc: str) -> str | None:
+def _read_frontmatter(path: Path) -> dict[str, Any]:
+    """Read an existing document's frontmatter, or {} if absent/unparseable."""
     if not path.is_file():
+        return {}
+    fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    return fm
+
+
+def _section_hash_for(frontmatter: dict[str, Any], doc: str) -> str | None:
+    """The stored section hash for ``doc`` from parsed frontmatter."""
+    raw = frontmatter.get("section_hashes", {})
+    if not isinstance(raw, dict):
         return None
-    return existing_section_hashes(path.read_text(encoding="utf-8")).get(doc)
+    value = raw.get(doc)
+    return str(value) if value is not None else None
+
+
+def _version_string(value: object) -> str | None:
+    """A frontmatter doc_version as a string, or None when absent."""
+    return str(value) if isinstance(value, str) and value else None
+
+
+def _stamped_version(
+    existing: object, doc: str, bump_levels: dict[str, BumpLevel] | None
+) -> tuple[str, str]:
+    """The (doc_version, level) for a regenerated document.
+
+    First generation (no lockfile) stamps INITIAL_VERSION. Otherwise the doc
+    is bumped at its classified level, defaulting to patch when the change
+    was not field-classified (e.g. a framework pack content change).
+    """
+    if bump_levels is None:
+        return INITIAL_VERSION, "initial"
+    level = bump_levels.get(doc, "patch")
+    return next_version(existing, level), level
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +296,7 @@ def _write_engine_docs(
     result: GenerationResult,
     timestamp: str,
     context_from_file: bool,
+    materiality: MaterialityResult | None,
 ) -> None:
     file_hashes = profile_file_hashes(profile)
     common = _Common(
@@ -214,35 +309,57 @@ def _write_engine_docs(
     # QUICKSTART: regenerate only if something changed this run.
     if result.changed:
         body = _quickstart_body(profile, result, context_from_file)
-        fm = _engine_frontmatter("QUICKSTART", _short_hash(body), timestamp, common)
-        if _write_engine_doc_if_body_changed(governance_dir / "QUICKSTART.md", fm, body):
-            result.written_files.append(governance_dir / "QUICKSTART.md")
+        _write_engine_doc(
+            governance_dir / "QUICKSTART.md", "QUICKSTART.md", body, timestamp, common, result
+        )
 
     # ATTENTION: informational note about context completeness.
     att_body = _attention_body(context_from_file)
-    att_fm = _engine_frontmatter("ATTENTION", _short_hash(att_body), timestamp, common)
-    if _write_engine_doc_if_body_changed(governance_dir / "ATTENTION.md", att_fm, att_body):
-        result.written_files.append(governance_dir / "ATTENTION.md")
+    _write_engine_doc(
+        governance_dir / "ATTENTION.md", "ATTENTION.md", att_body, timestamp, common, result
+    )
 
     # CHANGELOG: append-only, one entry per run that regenerated something.
-    if result.changed:
-        _append_changelog(governance_dir / "CHANGELOG.md", common, result, timestamp)
+    # Disableable via config.documents (QUICKSTART and ATTENTION are not).
+    if result.changed and "CHANGELOG.md" in _enabled_documents(config):
+        _append_changelog(governance_dir / "CHANGELOG.md", common, result, timestamp, materiality)
 
 
-def _write_engine_doc_if_body_changed(
-    path: Path, frontmatter: dict[str, object], body: str
-) -> bool:
-    """Write only if the body differs from the existing file's body.
+def _write_engine_doc(
+    path: Path,
+    doc: str,
+    body: str,
+    timestamp: str,
+    common: _Common,
+    result: GenerationResult,
+) -> None:
+    """Write an engine-generated document when its body changed.
 
     Comparing bodies (not full content) means an unchanged engine doc keeps
     its existing frontmatter and ``generated`` timestamp, which is what makes
-    a no-op generate produce zero git diff.
+    a no-op generate produce zero git diff. A rewrite bumps ``doc_version``
+    by one patch step; the section hash is the body hash (decoupled from the
+    version).
     """
-    if path.is_file():
+    existing_fm = _read_frontmatter(path)
+    if existing_fm:
         _, existing_body = parse_frontmatter(path.read_text(encoding="utf-8"))
         if existing_body.lstrip("\n") == body.lstrip("\n"):
-            return False
-    return write_if_changed(path, render_document(frontmatter, body))
+            return
+    old_version = _version_string(existing_fm.get("doc_version"))
+    new_version = INITIAL_VERSION if old_version is None else next_version(old_version, "patch")
+    fm = build_frontmatter(
+        doc_version=new_version,
+        agent_version=common.agent_version,
+        generated=timestamp,
+        generator_version=common.generator_version,
+        input_hashes=common.input_hashes,
+        framework_pack_version=common.framework_pack_version,
+        section_hashes={doc: _short_hash(body)},
+    )
+    if write_if_changed(path, render_document(fm, body)):
+        result.written_files.append(path)
+    result.version_changes[doc] = (old_version, new_version, "patch")
 
 
 def _quickstart_body(
@@ -259,7 +376,11 @@ def _quickstart_body(
         "",
     ]
     for doc in result.regenerated:
-        lines.append(f"- `{doc}` regenerated")
+        change = result.version_changes.get(doc)
+        if change is not None:
+            lines.append(f"- `{doc}` regenerated ({_fmt_version_change(change[0], change[1])})")
+        else:
+            lines.append(f"- `{doc}` regenerated")
     lines.extend(
         [
             "",
@@ -296,15 +417,53 @@ def _attention_body(context_from_file: bool) -> str:
 
 
 def _append_changelog(
-    path: Path, common: _Common, result: GenerationResult, timestamp: str
+    path: Path,
+    common: _Common,
+    result: GenerationResult,
+    timestamp: str,
+    materiality: MaterialityResult | None,
 ) -> None:
+    """Append one entry per regenerating run: date, agent version, per-doc
+    version bumps, the most significant change, and the materiality score
+    (or "not scored" for a plain generate)."""
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
     _, body_existing = parse_frontmatter(existing) if existing else ({}, "")
-    entry = f"## {timestamp} — regenerated: {', '.join(result.regenerated)}\n"
+
+    llm_changes = [
+        (doc, old, new, level)
+        for doc, (old, new, level) in sorted(result.version_changes.items())
+        if doc in LLM_DOCS
+    ]
+    bumps = "; ".join(
+        f"{doc} ({_fmt_version_change(old, new)})" for doc, old, new, _ in llm_changes
+    )
+    level = most_significant([lv for _, _, _, lv in llm_changes])
+    score = f"{materiality.score} ({materiality.band})" if materiality is not None else "not scored"
+    entry = (
+        f"## {timestamp} — agent v{common.agent_version}\n\n"
+        f"Regenerated {len(llm_changes)} document(s): {bumps}.\n"
+        f"Most significant change: {level}. Materiality: {score}.\n"
+    )
     new_body = (body_existing.lstrip("\n") + "\n" + entry) if body_existing.strip() else entry
-    fm = _engine_frontmatter("CHANGELOG", _short_hash(new_body), timestamp, common)
+
+    old_version = _version_string(_read_frontmatter(path).get("doc_version"))
+    new_version = INITIAL_VERSION if old_version is None else next_version(old_version, "patch")
+    fm = build_frontmatter(
+        doc_version=new_version,
+        agent_version=common.agent_version,
+        generated=timestamp,
+        generator_version=common.generator_version,
+        input_hashes=common.input_hashes,
+        framework_pack_version=common.framework_pack_version,
+        section_hashes={"CHANGELOG.md": _short_hash(new_body)},
+    )
     if write_if_changed(path, render_document(fm, new_body)):
         result.written_files.append(path)
+
+
+def _fmt_version_change(old: str | None, new: str) -> str:
+    """Render a version bump for prose: "0.1.0 → 0.2.0", or "new at 0.1.0"."""
+    return f"{old} → {new}" if old is not None else f"new at {new}"
 
 
 # ---------------------------------------------------------------------------
@@ -320,20 +479,6 @@ class _Common:
     generator_version: str
     input_hashes: dict[str, str]
     framework_pack_version: str
-
-
-def _engine_frontmatter(
-    doc: str, doc_version: str, generated: str, common: _Common
-) -> dict[str, object]:
-    return build_frontmatter(
-        doc_version=doc_version,
-        agent_version=common.agent_version,
-        generated=generated,
-        generator_version=common.generator_version,
-        input_hashes=common.input_hashes,
-        framework_pack_version=common.framework_pack_version,
-        section_hashes={doc: doc_version},
-    )
 
 
 def _enabled_documents(config: Config) -> set[str]:
@@ -360,6 +505,7 @@ def _short_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
+@lru_cache(maxsize=1)
 def _generator_version() -> str:
     """The tool version, read once and cached."""
     try:

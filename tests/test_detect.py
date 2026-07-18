@@ -185,7 +185,7 @@ def test_unwatched_file_no_rebuild(repo: Path) -> None:
 def test_watched_file_triggers_heuristic(repo: Path) -> None:
     """A watched file (CLAUDE.md) triggers the heuristic pass."""
     config = _config()
-    result = heuristic_pass(["CLAUDE.md"], config)
+    result = heuristic_pass(["CLAUDE.md"], config.watched_paths)
     assert result.matched
     assert "CLAUDE.md" in result.matched_paths
 
@@ -193,7 +193,7 @@ def test_watched_file_triggers_heuristic(repo: Path) -> None:
 def test_nested_watched_file(repo: Path) -> None:
     """A file under .claude/** matches the watched glob."""
     config = _config()
-    result = heuristic_pass([".claude/instructions.md"], config)
+    result = heuristic_pass([".claude/instructions.md"], config.watched_paths)
     assert result.matched
 
 

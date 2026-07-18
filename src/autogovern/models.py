@@ -230,25 +230,28 @@ class Thresholds(BaseModel):
     immaterial: int = 20
 
 
+# Default watched-path globs for the heuristic pass. Module-level so the
+# pre-commit hook can use them when no config file exists yet.
+DEFAULT_WATCHED_PATHS: list[str] = [
+    "CLAUDE.md",
+    "AGENTS.md",
+    "agent.md",
+    ".claude/**",
+    ".mcp.json",
+    "mcp.json",
+    ".well-known/agent.json",
+    "pyproject.toml",
+    "package.json",
+    "requirements.txt",
+    "prompts/**",
+]
+
+
 class Config(BaseModel):
     """The ``.autogovern/config.yaml`` document."""
 
     model_provider: ModelProviderConfig
-    watched_paths: list[str] = Field(
-        default_factory=lambda: [
-            "CLAUDE.md",
-            "AGENTS.md",
-            "agent.md",
-            ".claude/**",
-            ".mcp.json",
-            "mcp.json",
-            ".well-known/agent.json",
-            "pyproject.toml",
-            "package.json",
-            "requirements.txt",
-            "prompts/**",
-        ]
-    )
+    watched_paths: list[str] = Field(default_factory=lambda: list(DEFAULT_WATCHED_PATHS))
     thresholds: Thresholds = Field(default_factory=Thresholds)
     documents: dict[str, bool] = Field(
         default_factory=lambda: {
@@ -302,23 +305,6 @@ class MaterialityResult(BaseModel):
     criteria: list[MaterialityCriterion] = Field(default_factory=list)
 
 
-class VerifierResult(BaseModel):
-    """The verifier's verdict on one regenerated section."""
-
-    section: str
-    supported_claims: int = 0
-    unsupported_claims: int = 0
-    findings: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class AttentionItem(BaseModel):
-    """An item requiring human attention, opened or closed in a run."""
-
-    item_id: str
-    action: str
-    detail: str = ""
-
-
 class RunManifest(BaseModel):
     """The audit trail written for every scan, generate, check, and diff."""
 
@@ -331,8 +317,6 @@ class RunManifest(BaseModel):
     token_counts: TokenCounts | None = None
     prompt_template_versions: dict[str, str] = Field(default_factory=dict)
     materiality: MaterialityResult | None = None
-    verifier_results: list[VerifierResult] = Field(default_factory=list)
-    attention_items: list[AttentionItem] = Field(default_factory=list)
 
 
 __all__ = [
@@ -342,10 +326,10 @@ __all__ = [
     "AgentProfile",
     "AgentProvider",
     "AgentSkill",
-    "AttentionItem",
     "AutonomyLevel",
     "Config",
     "ContextManifest",
+    "DEFAULT_WATCHED_PATHS",
     "DataCategory",
     "DeploymentContext",
     "Dependency",
@@ -363,5 +347,4 @@ __all__ = [
     "SectionRegeneration",
     "Thresholds",
     "TokenCounts",
-    "VerifierResult",
 ]

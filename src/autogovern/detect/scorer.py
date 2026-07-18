@@ -21,16 +21,6 @@ from autogovern.detect.diff import FieldDiff, ProfileDiff
 from autogovern.models import MaterialityCriterion, MaterialityResult, Thresholds
 from autogovern.provider import ProviderClient
 
-# Fields that score deterministically. Each names the diff field and a scorer.
-_DETERMINISTIC_FIELDS = {
-    "governance.model_configuration",
-    "governance.permissions_surface",
-    "governance.data_categories",
-    "context.autonomy_level",
-    "context.risk_appetite",
-    "governance.prompt_inventory.paths",
-}
-
 PROMPT_TEMPLATE_VERSION = "semantic-scorer-1.0.0"
 
 
@@ -59,8 +49,8 @@ def _score_field(fd: FieldDiff) -> MaterialityCriterion | None:
             reasoning=f"model changed from {fd.old!r} to {fd.new!r}",
         )
     if field == "governance.permissions_surface":
-        old_tools = _tools(fd.old)
-        new_tools = _tools(fd.new)
+        old_tools = permission_tool_names(fd.old)
+        new_tools = permission_tool_names(fd.new)
         added = new_tools - old_tools
         removed = old_tools - new_tools
         if added:
@@ -113,6 +103,14 @@ def _score_field(fd: FieldDiff) -> MaterialityCriterion | None:
             criterion="prompt file added or removed",
             score=90,
             reasoning=f"prompt paths changed: {fd.old!r} → {fd.new!r}",
+        )
+    if field.startswith("context."):
+        # Context fields other than autonomy/risk appetite (scored above):
+        # docs consume them, so a change is advisory rather than silent.
+        return MaterialityCriterion(
+            criterion="context change",
+            score=50,
+            reasoning=f"context field {field!r} changed",
         )
     return None
 
@@ -189,8 +187,12 @@ def build_result(criteria: list[MaterialityCriterion], thresholds: Thresholds) -
     return MaterialityResult(score=score, band=band_for(score, thresholds), criteria=criteria)
 
 
-def _tools(permissions: Any) -> set[str]:
-    """Extract tool names from a permissions surface list."""
+def permission_tool_names(permissions: Any) -> set[str]:
+    """Extract tool names from a permissions surface list.
+
+    Public so the versioning module applies the same tool/scope split when
+    classifying version bumps.
+    """
     if not isinstance(permissions, list):
         return set()
     tools: set[str] = set()
@@ -209,6 +211,7 @@ __all__ = [
     "SemanticScore",
     "band_for",
     "build_result",
+    "permission_tool_names",
     "score_deterministic",
     "score_semantic",
 ]

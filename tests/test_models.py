@@ -8,7 +8,6 @@ from autogovern.models import (
     AgentProfile,
     AgentProvider,
     AgentSkill,
-    AttentionItem,
     AutonomyLevel,
     Config,
     ContextManifest,
@@ -29,7 +28,6 @@ from autogovern.models import (
     SectionRegeneration,
     Thresholds,
     TokenCounts,
-    VerifierResult,
 )
 
 # Models that must round-trip and export a JSON schema.
@@ -125,8 +123,6 @@ def _run_manifest() -> RunManifest:
             band="material",
             criteria=[MaterialityCriterion(criterion="tool change", score=90)],
         ),
-        verifier_results=[VerifierResult(section="system-card", supported_claims=4)],
-        attention_items=[AttentionItem(item_id="a1", action="opened")],
     )
 
 

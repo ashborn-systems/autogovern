@@ -94,6 +94,7 @@ def test_criterion_1_init_generate_full_set(
         "incident-response.md",
         "CHANGELOG.md",
         "profile.lock",
+        "context.lock",
     }
     actual = {f.name for f in gov.iterdir() if f.is_file()}
     assert expected <= actual
@@ -103,7 +104,7 @@ def test_criterion_1_init_generate_full_set(
 
     # Every doc has frontmatter.
     for doc in gov.iterdir():
-        if doc.name == "profile.lock" or not doc.is_file():
+        if doc.name in ("profile.lock", "context.lock") or not doc.is_file():
             continue
         assert doc.read_text().startswith("---"), f"{doc.name} missing frontmatter"
 
@@ -205,7 +206,8 @@ def test_criterion_4_idempotent_generate(
 def test_criterion_5_pre_commit_hook_fast_and_nonblocking(
     repo: Path, config_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The pre-commit hook content is lightweight and never blocks."""
+    """The installed hook prints an impact flag in <500ms and never blocks."""
+    import subprocess
     import time
 
     from autogovern.hooks import install_pre_commit_hook
@@ -215,17 +217,22 @@ def test_criterion_5_pre_commit_hook_fast_and_nonblocking(
     assert hook.is_file()
     assert hook.stat().st_mode & 0o111  # executable
 
-    content = hook.read_text()
-    # Never blocks: no `exit 1` in the hook body (except in comments).
-    assert "exit 1" not in content.replace("#", "")
-
-    # The hook is a simple echo (fast by construction).
+    # Stage a watched file: the hook prints the impact flag, exit 0, fast.
+    (repo / "CLAUDE.md").write_text("edited\n")
+    subprocess.run(["git", "add", "CLAUDE.md"], cwd=repo, capture_output=True)
     start = time.monotonic()
-    import subprocess
-
-    subprocess.run([str(hook)], cwd=repo, capture_output=True, timeout=5)
+    proc = subprocess.run([str(hook)], cwd=repo, capture_output=True, text=True, timeout=10)
     elapsed = (time.monotonic() - start) * 1000
+    assert proc.returncode == 0
+    assert "governance impact: yes" in proc.stdout
+    assert "CLAUDE.md" in proc.stdout
     assert elapsed < 500, f"hook took {elapsed:.0f}ms"
+
+    # Nothing staged: impact no, still exit 0 (never blocks).
+    subprocess.run(["git", "reset", "-q"], cwd=repo, capture_output=True)
+    proc2 = subprocess.run([str(hook)], cwd=repo, capture_output=True, text=True, timeout=10)
+    assert proc2.returncode == 0
+    assert "governance impact: no" in proc2.stdout
 
 
 # ---------------------------------------------------------------------------

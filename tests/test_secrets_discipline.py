@@ -86,7 +86,7 @@ def test_env_example_has_no_real_key_values() -> None:
     # a default, and a value here would be misleading.
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped.startswith("MODEL_PROVIDER_API_KEY_ENV="):
-            assert stripped == "MODEL_PROVIDER_API_KEY_ENV=OPENROUTER_API_KEY"
-        elif stripped.startswith("MODEL_PROVIDER_MODEL="):
-            assert stripped == "MODEL_PROVIDER_MODEL="
+        if stripped.startswith("AUTOGOVERN_API_KEY_ENV="):
+            assert stripped == "AUTOGOVERN_API_KEY_ENV=OPENROUTER_API_KEY"
+        elif stripped.startswith("AUTOGOVERN_MODEL="):
+            assert stripped == "AUTOGOVERN_MODEL="

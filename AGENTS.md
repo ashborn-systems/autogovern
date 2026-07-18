@@ -12,9 +12,9 @@ of scope for this build but the architecture leaves clean seams for them.
 
 Remote: `https://github.com/ashborn-systems/autogovern`
 
-The spec (`SPEC.md`) and phased build plan (`BUILDPLAN.md`) live at the repo root.
-The build log (`BUILDLOG.md`) records one line per phase. The framework pack ships
-inside the package at `src/autogovern/frameworks/`.
+The spec (`docs/SPEC.md`) and phased build plan (`docs/BUILDPLAN.md`) live in
+`docs/`. The build log (`docs/BUILDLOG.md`) records one line per phase. The
+framework pack ships inside the package at `src/autogovern/frameworks/`.
 
 ## Build & test commands (exact flags matter)
 
@@ -35,8 +35,8 @@ Pre-commit: `uv run pre-commit run --all-files`
 
 ## Hard constraints
 
-1. **Spec is authoritative.** `SPEC.md` wins over BUILDPLAN.md on any conflict.
-   If you find one, note it in `BUILDLOG.md`.
+1. **Spec is authoritative.** `docs/SPEC.md` wins over `docs/BUILDPLAN.md` on
+   any conflict. If you find one, note it in `docs/BUILDLOG.md`.
 2. **All tests mock the model provider.** No test may call a live LLM. Smoke
    tests run only when `AUTOGOVERN_SMOKE=1` and a provider is configured.
 3. **Determinism is a feature.** Any test that passes intermittently is a
@@ -96,7 +96,6 @@ src/autogovern/
   hooks/              # pre-commit and CI entrypoints
   versioning/         # doc version stamping, changelog writer
   observability/      # run manifests
-templates/            # document templates (Jinja2 + Markdown)
 action/               # GitHub Action definition
 tests/
   fixtures/           # small fake agent repos used as known test inputs
@@ -114,5 +113,6 @@ tests/
 
 ## Phase status
 
-Phases 0-4 are complete. Next: Phase 5 — init (config and context wizard).
-See `BUILDPLAN.md` and `BUILDLOG.md`.
+Phases 0-13 are complete (the full build plan). A post-build hardening pass
+(review-driven bug fixes, dead-code removal, semver doc versioning) is
+recorded in `docs/BUILDLOG.md`. See `docs/BUILDPLAN.md` and `docs/BUILDLOG.md`.

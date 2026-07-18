@@ -11,8 +11,7 @@ Field precedence (card fields, highest first):
   4. A safe default
 
 Governance extension fields are always populated; when a signal is absent the
-field is empty with empty-string provenance, and the gap is a candidate for the
-Phase 8 attention ledger.
+field is empty with empty-string provenance.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# Framework pack index for auto-govern.
+# Framework pack index for autogovern.
 # The generation engine treats this file and everything it references as data.
 # Content in agentic-governance/ and agentic-business-case/ is copied verbatim
 # from its source skills.
@@ -24,7 +24,7 @@ frameworks:
     path: agentic-business-case/
     role: supplementary
     files:
-      quality_rubric: agentic-business-case/rubric.md                # verifier quality rubric; see scope note below
+      quality_rubric: agentic-business-case/rubric.md                # quality rubric, kept as reference data for future quality-feedback features; see scope note below
       business_frameworks: agentic-business-case/frameworks.md       # sections 1-8 only; see scope note below
     scope_notes:
       - "rubric.md: only the 'Risk, governance, and responsible deployment', 'Realism, feasibility, and judgement', and 'Cross-cutting quality signals' sections apply. Slide and deck sections are out of scope for this tool."
@@ -35,16 +35,8 @@ frameworks:
 # style guide, not tied to any individual: plain declarative sentences,
 # concrete thresholds and figures, and a ban on common AI constructions
 # (em-dashes, contrastive negation, significance inflation, meta-signposting,
-# copula avoidance, rhetorical triplets). Enforced in prompts and checked by
-# the verifier pass.
+# copula avoidance, rhetorical triplets). Embedded in every generation prompt.
 style_authority: agentic-governance/skill-source.md#writing-rules-for-all-output
-
-# Verifier quality rubric: beyond claim-support checking, the verifier scores
-# regenerated sections against the in-scope rubric criteria - risks mapped
-# one-to-one to the agent's actual capabilities, kill switch and audit logging
-# present, sandbox protocol matched to privilege, strategic restraint named,
-# numbers carrying stated assumptions, one consistent currency.
-verifier_rubric: agentic-business-case/rubric.md
 
 # Document feeds: which pack sections supply each generated document.
 # Section references use the numbered headings in the source files.

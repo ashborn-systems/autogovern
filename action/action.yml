@@ -6,23 +6,60 @@ inputs:
     required: false
     default: check
   fix:
-    description: Whether to run with --fix (regenerate stale docs)
+    description: Run with --fix and commit the regenerated docs (no human in the loop)
     required: false
     default: "false"
+  api_base:
+    description: OpenAI-compatible provider API base (vanilla mode; unneeded with committed config)
+    required: false
+    default: ""
+  model:
+    description: Model id (vanilla mode; unneeded with committed config)
+    required: false
+    default: ""
+  api_key_env:
+    description: Name of the Actions secret holding the provider API key
+    required: false
+    default: OPENROUTER_API_KEY
 runs:
   using: composite
   steps:
-    - name: Install auto-govern
+    - name: Install autogovern
       shell: bash
-      run: pip install auto-govern
+      run: pip install autogovern
+
     - name: Run autogovern
       shell: bash
       env:
-        AUTOGOVERN_API_KEY_ENV: OPENROUTER_API_KEY
-        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        AUTOGOVERN_API_BASE: ${{ inputs.api_base }}
+        AUTOGOVERN_MODEL: ${{ inputs.model }}
+        AUTOGOVERN_API_KEY_ENV: ${{ inputs.api_key_env }}
+        AUTOGOVERN_PROVIDER_KEY: ${{ secrets[inputs.api_key_env] }}
       run: |
+        set -e
+        # Map the configured secret name to the provider key, provider-neutral.
+        export "${{ inputs.api_key_env }}=${AUTOGOVERN_PROVIDER_KEY}"
+        # Vanilla mode: only export provider settings the caller supplied.
+        if [ -z "${AUTOGOVERN_API_BASE}" ]; then unset AUTOGOVERN_API_BASE; fi
+        if [ -z "${AUTOGOVERN_MODEL}" ]; then unset AUTOGOVERN_MODEL; fi
         if [ "${{ inputs.fix }}" = "true" ]; then
-          autogovern ${{ inputs.command }} --fix
+          autogovern ${{ inputs.command }} --fix --json
         else
-          autogovern ${{ inputs.command }}
+          autogovern ${{ inputs.command }} --json
         fi
+
+    - name: Commit regenerated docs
+      if: inputs.fix == 'true'
+      shell: bash
+      run: |
+        set -e
+        git config user.name "autogovern[bot]"
+        git config user.email "autogovern[bot]@users.noreply.github.com"
+        git add governance/ .well-known/ 2>/dev/null || git add governance/ || true
+        if git diff --cached --quiet; then
+          echo "autogovern: docs already current, nothing to commit"
+        else
+          git commit -m "autogovern: regenerated governance docs"
+          git push
+        fi
+# For fix mode, the calling workflow needs: permissions: contents: write

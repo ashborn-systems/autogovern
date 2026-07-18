@@ -7,8 +7,7 @@ fallback when no manifest supplies them.
 
 This module is the single LLM seam in the scanner. Everything else in
 ``ingest/`` is pure. A missing or failing provider leaves the summary empty
-so the deterministic profile is still produced (degraded mode); the missing
-fields route to the attention ledger in Phase 8.
+so the deterministic profile is still produced (degraded mode).
 """
 
 from __future__ import annotations
@@ -75,8 +74,7 @@ def summarise_free_text(
         summary = provider.chat_json(prompt, schema=FreeTextSummary)
     except Exception:
         # Degraded mode: a provider failure must not abort the scan. The
-        # deterministic profile is still produced; missing fields surface as
-        # attention items in Phase 8.
+        # deterministic profile is still produced, with free-text fields empty.
         logger.warning("Free-text summarisation failed; producing degraded profile.")
         return FreeTextSummary(), provenance_source
     return summary, provenance_source

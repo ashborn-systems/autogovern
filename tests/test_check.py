@@ -114,6 +114,97 @@ def test_acceptance_2_check_fix_cycle(
 
 
 # ---------------------------------------------------------------------------
+# Regression: immaterial changes pass silently (spec: score <= 20 passes)
+# ---------------------------------------------------------------------------
+
+
+def test_check_immaterial_change_passes(
+    repo: Path, config_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dependency-only change is immaterial: check exits 0, does not block."""
+    _write_init(repo)
+    monkeypatch.chdir(repo)
+    import autogovern.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "build_provider", _mock_provider_factory)
+
+    result = runner.invoke(app, ["generate", str(repo)])
+    assert result.exit_code == 0, result.output
+
+    # Dependency-only change: no deterministic rule fires, score 0.
+    pyproject = repo / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace("dependencies = [", 'dependencies = [\n    "requests>=2",')
+    )
+
+    check_result = runner.invoke(app, ["check", str(repo)])
+    assert check_result.exit_code == 0, check_result.output
+    assert "immaterial" in check_result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Regression: prompt changes name their stale sections via the graph
+# ---------------------------------------------------------------------------
+
+
+def test_check_prompt_change_lists_stale_sections(
+    repo: Path, config_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A prompt content change must list inventory.md as a stale section."""
+    _write_init(repo)
+    monkeypatch.chdir(repo)
+    import autogovern.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "build_provider", _mock_provider_factory)
+
+    result = runner.invoke(app, ["generate", str(repo)])
+    assert result.exit_code == 0, result.output
+
+    prompt = repo / "prompts" / "system.md"
+    prompt.write_text(prompt.read_text() + "\nAn extra instruction.\n")
+
+    check_result = runner.invoke(app, ["check", str(repo)])
+    assert check_result.exit_code == 1, check_result.output
+    assert "inventory.md" in check_result.output
+
+
+# ---------------------------------------------------------------------------
+# Regression: context edits are detected via context.lock
+# ---------------------------------------------------------------------------
+
+
+def test_check_context_change_detected(
+    repo: Path, config_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Editing context.yaml after generate flags check; --fix clears it."""
+    _write_init(repo)
+    monkeypatch.chdir(repo)
+    import autogovern.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "build_provider", _mock_provider_factory)
+
+    result = runner.invoke(app, ["generate", str(repo)])
+    assert result.exit_code == 0, result.output
+    assert (repo / GOV / "context.lock").is_file()
+
+    # Autonomy change is deterministically material.
+    context_path = repo / ".autogovern" / "context.yaml"
+    raw = yaml.safe_load(context_path.read_text())
+    raw["autonomy_level"] = "fully-autonomous"
+    context_path.write_text(yaml.safe_dump(raw, sort_keys=False))
+
+    check_result = runner.invoke(app, ["check", str(repo)])
+    assert check_result.exit_code == 1, check_result.output
+    assert "context.autonomy_level" in check_result.output or "STALE" in check_result.output
+
+    fix_result = runner.invoke(app, ["check", str(repo), "--fix"])
+    assert fix_result.exit_code == 0, fix_result.output
+
+    final_result = runner.invoke(app, ["check", str(repo)])
+    assert final_result.exit_code == 0, final_result.output
+
+
+# ---------------------------------------------------------------------------
 # --strict on advisory scores
 # ---------------------------------------------------------------------------
 
@@ -221,19 +312,33 @@ def test_pre_commit_hook_installed(repo: Path) -> None:
 
 
 def test_pre_commit_hook_fast(repo: Path) -> None:
-    """The pre-commit hook content is lightweight (no LLM, no blocking)."""
+    """The installed hook runs the heuristic command and never blocks."""
     install_pre_commit_hook(repo)
     hook = repo / ".git" / "hooks" / "pre-commit"
     content = hook.read_text()
-    assert "autogovern" in content
-    # It should not block (warning-only per spec).
-    assert "exit 1" not in content or "skip" in content.lower()
+    assert "autogovern hook run" in content
+    # Never blocks: the hook always exits 0 even if autogovern fails.
+    assert "|| true" in content
+    assert "exit 1" not in content
+
+
+def test_hook_run_impact_flag(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`hook run` prints the impact flag for watched and unwatched files."""
+    monkeypatch.chdir(repo)
+    result = runner.invoke(app, ["hook", "run", "CLAUDE.md"])
+    assert result.exit_code == 0
+    assert "governance impact: yes" in result.output
+    assert "CLAUDE.md" in result.output
+
+    result_no = runner.invoke(app, ["hook", "run", "tests/test_something.py"])
+    assert result_no.exit_code == 0
+    assert "governance impact: no" in result_no.output
 
 
 def test_hook_cli_command(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`autogovern hook` installs the pre-commit hook."""
+    """`autogovern hook install` installs the pre-commit hook."""
     monkeypatch.chdir(repo)
-    result = runner.invoke(app, ["hook"])
+    result = runner.invoke(app, ["hook", "install"])
     assert result.exit_code == 0
     assert "installed" in result.output.lower()
     assert (repo / ".git" / "hooks" / "pre-commit").is_file()
@@ -341,7 +446,7 @@ def test_ci_writer_bitbucket(repo: Path) -> None:
 def test_ci_writer_generic(repo: Path) -> None:
     """Generic CI writer prints the command."""
     msg = install_ci_config(repo, api_key_env="OPENROUTER_API_KEY")
-    assert "pip install auto-govern" in msg
+    assert "pip install autogovern" in msg
     assert "autogovern check" in msg
 
 

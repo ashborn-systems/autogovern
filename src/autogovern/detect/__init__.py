@@ -46,15 +46,6 @@ class DetectionResult:
         """Whether a materiality-relevant change was detected."""
         return self.profile_diff is not None and self.profile_diff.has_diff
 
-    @property
-    def stale_sections(self) -> list[str]:
-        """Document sections affected by the changed inputs (from the graph).
-
-        Computed by the caller (which has the pack); this is a placeholder
-        that the caller fills from the dependency graph.
-        """
-        return []
-
 
 def detect_material_change(
     changed_files: list[str | Path],
@@ -86,7 +77,7 @@ def detect_material_change(
         A :class:`DetectionResult`.
     """
     # Stage 1: heuristic pass.
-    heuristic = heuristic_pass(changed_files, config)
+    heuristic = heuristic_pass(changed_files, config.watched_paths)
     if not heuristic.matched and not ci_mode:
         return DetectionResult(heuristic=heuristic)
 
@@ -123,8 +114,6 @@ def detect_material_change(
         llm_calls = 1
     elif diff.semantic_fields and not criteria and provider is None:
         # Degrade: no provider, assume material.
-        from autogovern.models import MaterialityCriterion
-
         criteria.append(
             MaterialityCriterion(
                 criterion="semantic (degraded, no provider)",

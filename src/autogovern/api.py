@@ -16,7 +16,7 @@ from pathlib import Path
 
 from autogovern.check import CheckResult, run_check
 from autogovern.generate import GenerationResult, generate_docs
-from autogovern.generate.lockfile import read_lockfile
+from autogovern.generate.lockfile import read_context_lock, read_lockfile
 from autogovern.ingest import ScanResult, scan_repo
 from autogovern.models import AgentProfile, Config, ContextManifest
 from autogovern.provider import ProviderClient, build_provider
@@ -99,12 +99,15 @@ def _check_headless(
     pack = load_pack()
     governance_dir = root / "governance"
     locked_profile = read_lockfile(governance_dir)
+    locked_context = read_context_lock(governance_dir)
 
     detection = detect_material_change(
         changed_files=[],
         config=config,
         locked_profile=locked_profile,
         current_profile=current_profile,
+        locked_context=locked_context,
+        current_context=context,
         provider=provider,
         ci_mode=True,
     )
@@ -129,6 +132,7 @@ def _check_headless(
         remediation=(
             f"autogovern generate  # regenerate: {', '.join(stale_sections) or 'affected sections'}"
         ),
+        strict=strict,
         detection=detection,
     )
 
@@ -141,18 +145,8 @@ def _check_headless(
             provider=provider,
             pack=pack,
             context_from_file=context_from_file,
+            materiality=detection.materiality,
         )
         result.fixed = True
-
-    if strict and result.band == "advisory":
-        return CheckResult(
-            current=False,
-            score=materiality.score,
-            band="advisory",
-            stale_sections=stale_sections,
-            changed_fields=changed_fields,
-            remediation="autogovern generate  # advisory: regenerate to clear",
-            detection=detection,
-        )
 
     return result

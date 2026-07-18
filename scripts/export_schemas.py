@@ -15,6 +15,9 @@ SCHEMA_DIR = Path("schemas")
 
 def main() -> None:
     SCHEMA_DIR.mkdir(exist_ok=True)
+    # Clean first so removed models never leave stale schema files behind.
+    for stale in SCHEMA_DIR.glob("*.json"):
+        stale.unlink()
     for name in models.__all__:
         model_cls = getattr(models, name)
         if not hasattr(model_cls, "model_json_schema"):

@@ -1,29 +1,5 @@
 {
   "$defs": {
-    "AttentionItem": {
-      "description": "An item requiring human attention, opened or closed in a run.",
-      "properties": {
-        "action": {
-          "title": "Action",
-          "type": "string"
-        },
-        "detail": {
-          "default": "",
-          "title": "Detail",
-          "type": "string"
-        },
-        "item_id": {
-          "title": "Item Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "item_id",
-        "action"
-      ],
-      "title": "AttentionItem",
-      "type": "object"
-    },
     "MaterialityCriterion": {
       "description": "One scored criterion within a materiality assessment.",
       "properties": {
@@ -135,49 +111,10 @@
       },
       "title": "TokenCounts",
       "type": "object"
-    },
-    "VerifierResult": {
-      "description": "The verifier's verdict on one regenerated section.",
-      "properties": {
-        "findings": {
-          "items": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "title": "Findings",
-          "type": "array"
-        },
-        "section": {
-          "title": "Section",
-          "type": "string"
-        },
-        "supported_claims": {
-          "default": 0,
-          "title": "Supported Claims",
-          "type": "integer"
-        },
-        "unsupported_claims": {
-          "default": 0,
-          "title": "Unsupported Claims",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "section"
-      ],
-      "title": "VerifierResult",
-      "type": "object"
     }
   },
   "description": "The audit trail written for every scan, generate, check, and diff.",
   "properties": {
-    "attention_items": {
-      "items": {
-        "$ref": "#/$defs/AttentionItem"
-      },
-      "title": "Attention Items",
-      "type": "array"
-    },
     "command": {
       "title": "Command",
       "type": "string"
@@ -245,13 +182,6 @@
     "tool_version": {
       "title": "Tool Version",
       "type": "string"
-    },
-    "verifier_results": {
-      "items": {
-        "$ref": "#/$defs/VerifierResult"
-      },
-      "title": "Verifier Results",
-      "type": "array"
     }
   },
   "required": [

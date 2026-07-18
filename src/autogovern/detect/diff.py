@@ -87,24 +87,21 @@ def diff_profiles(locked: AgentProfile, current: AgentProfile) -> ProfileDiff:
 
 
 def diff_context(locked: ContextManifest | None, current: ContextManifest) -> ProfileDiff:
-    """Diff a context manifest. Autonomy level change is deterministic material."""
+    """Diff two context manifests, one FieldDiff per changed field.
+
+    Autonomy level and risk appetite changes score deterministically as
+    material (see :mod:`autogovern.detect.scorer`); every other context
+    field change is advisory. A ``None`` locked context (no context.lock,
+    e.g. repos predating context locking) yields an empty diff.
+    """
     diff = ProfileDiff()
     if locked is None:
         return diff
-    if locked.autonomy_level != current.autonomy_level:
-        diff.fields.append(
-            FieldDiff(
-                field="context.autonomy_level",
-                old=locked.autonomy_level,
-                new=current.autonomy_level,
-            )
-        )
-    if locked.risk_appetite != current.risk_appetite:
-        diff.fields.append(
-            FieldDiff(
-                field="context.risk_appetite", old=locked.risk_appetite, new=current.risk_appetite
-            )
-        )
+    for name in sorted(ContextManifest.model_fields):
+        old = getattr(locked, name)
+        new = getattr(current, name)
+        if old != new:
+            diff.fields.append(FieldDiff(field=f"context.{name}", old=old, new=new))
     return diff
 
 

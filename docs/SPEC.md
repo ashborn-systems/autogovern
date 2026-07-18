@@ -34,7 +34,7 @@ This specification covers the open-source core. Enterprise features (dynamic fra
 | Data models | Pydantic v2 | Validation, JSON schema export |
 | Model access | Provider-agnostic client | See below |
 | Config format | YAML | Human-editable, diff-friendly |
-| Packaging | `pyproject.toml`, published to PyPI as `auto-govern` | Standard |
+| Packaging | `pyproject.toml`, published to PyPI as `autogovern` | Standard |
 | Hook distribution | `pre-commit` framework hook + GitHub Action | Meets developers where they are |
 
 ### Model access
@@ -54,7 +54,7 @@ model_provider:
 ## Repository layout (of the tool itself)
 
 ```text
-auto-govern/
+autogovern/
   src/autogovern/
     cli.py              # Typer app, command definitions
     ingest/             # repo scanners and A2A card construction
@@ -66,7 +66,6 @@ auto-govern/
     hooks/              # pre-commit and CI entrypoints
     versioning/         # doc version stamping, changelog writer
     observability/      # run manifests
-  templates/            # document templates (Jinja2 + Markdown)
   action/               # GitHub Action definition
   tests/
     fixtures/           # small fake agent repos used as known test inputs
@@ -117,7 +116,7 @@ All fields validate against Pydantic models. The wizard accepts `--defaults` for
 - **GitHub** - `.github/workflows/autogovern.yml`; offers `gh secret set <API_KEY_ENV>` if the `gh` CLI is authenticated, otherwise prints the settings path
 - **Forgejo / Gitea** - same workflow syntax written to `.forgejo/workflows/`; secret created via repo settings (path printed)
 - **Bitbucket** - a step appended to (or created in) `bitbucket-pipelines.yml` running `autogovern check --json`; key stored as a secured repository variable (settings path printed)
-- **Other / none** - prints the single command to add to any CI system (`pip install auto-govern && autogovern check --json`) and the env var it needs
+- **Other / none** - prints the single command to add to any CI system (`pip install autogovern && autogovern check --json`) and the env var it needs
 
 In every case the workflow maps the platform's secret store to the configured key env var. Keys are never written to the repo or to config files.
 
@@ -201,7 +200,7 @@ The lockfile doubles as the agent's governance history: `git log governance/prof
 - **Score 21-79** - advisory. Logged in the run manifest and changelog; does not block
 - **Score <= 20** - immaterial. Pass silently
 
-The heuristic pass alone runs in pre-commit; the profile diff and semantic passes run in CI. `generate` and `scan` are responsible for writing an updated `profile.lock` whenever the profile changes.
+The heuristic pass alone runs in pre-commit; the profile diff and semantic passes run in CI. `generate` is responsible for writing an updated `profile.lock` (and `context.lock`, the frozen context manifest `check` diffs context edits against) whenever the inputs change.
 
 ## CLI commands
 
@@ -229,22 +228,22 @@ In a fully automated pipeline, CI runs `check --fix` and commits the regenerated
 
 ### Global flags
 
-Global flags are options accepted by **every** command, placed after the command name. They override the config file for that single run without changing it:
+Global flags are accepted by the inspection and generation commands (`scan`, `generate`, `diff`, `check`, `explain`), placed after the command name. They override the config file for that single run without changing it. (`init` and `hook` take no overrides: there is nothing for the flags to override.)
 
 - `--json` - print machine-readable JSON instead of human-formatted output, so scripts and other agents can parse results
 - `--config <path>` - use an alternate config file
 - `--model <id>` - override the configured model for this run
-- `--strict` - treat advisory-band scores as failures
+- `--strict` - treat advisory-band scores as failures (`check` only)
 
 Example: `autogovern check --json --strict` in CI.
 
 ## Versioning model
 
 - Governance docs live in the target repo and version with git - no external state
-- `doc_version` follows semver. The semantic pass classifies each regeneration: major (autonomy, permissions, or data category change), minor (tool or model change), patch (descriptive updates)
-- `agent_version` is taken from the project's own version if discoverable, otherwise from the release flag
-- `CHANGELOG.md` entries record: date, doc_version, agent_version, materiality score, changed sections, and a two-line human summary
-- Release regeneration: `autogovern generate --release <version>` performs a full regeneration regardless of hashes and stamps the version
+- `doc_version` follows semver. Each regeneration is classified deterministically from the lockfile diff and the section dependency graph: major (autonomy, permission-scope, or data category change), minor (tool or model change), patch (descriptive updates). Tool add/remove within the permissions surface is minor; env/scope change is major
+- `agent_version` is taken from the project's own version, discovered from its manifest
+- `CHANGELOG.md` entries record: date, doc_version bumps per document, agent_version, materiality score when the run was scored, changed sections, and a two-line human summary
+- Release regeneration (`autogovern generate --release <version>`: full regeneration regardless of hashes, stamping the version) is roadmap, not yet implemented
 
 ## Workflow integration
 
@@ -264,19 +263,19 @@ The OSS core stays CLI-first, with three integration paths:
 
 - **Importable as a library** - the engine is normal Python code. Another Python program can `import autogovern` and call `generate_docs(...)` or `check(...)` directly as functions, in the same process, with no CLI involved. The CLI is a thin wrapper over these functions
 - **Scriptable as an API** - because every command supports `--json`, any external system (a shell script, n8n, a CI job, another agent) can run the CLI as a subprocess and parse structured output. The CLI behaves like an API without running a server
-- **Headless profile input** - `generate`, `check`, and `diff` accept `--profile <file>` (or stdin) to consume an AgentProfile JSON directly, bypassing repo scanning entirely. This is how low-code and no-code agent platforms integrate: the platform maps its internal agent record to the profile schema and calls auto-govern on each publish event, with the last-published profile serving as the lockfile equivalent. Outputs return as structured JSON for the platform to store and render
+- **Headless profile input** - `generate`, `check`, and `diff` accept `--profile <file>` (or stdin) to consume an AgentProfile JSON directly, bypassing repo scanning entirely. This is how low-code and no-code agent platforms integrate: the platform maps its internal agent record to the profile schema and calls autogovern on each publish event, with the last-published profile serving as the lockfile equivalent. Outputs return as structured JSON for the platform to store and render
 
 A `serve` command exposing a local REST endpoint is deferred to enterprise; the library boundary must be designed so adding it requires no engine changes.
 
 ## Distribution
 
-The canonical package lives on PyPI (`pip install auto-govern`, or `pipx` / `uv tool install auto-govern` for isolated CLI installs). On top of that, ship the one-line installer pattern standard for dev tools:
+The canonical package lives on PyPI (`pip install autogovern`, or `pipx` / `uv tool install autogovern` for isolated CLI installs). On top of that, ship the one-line installer pattern standard for dev tools:
 
-- **`install/install.sh`** - POSIX shell installer served from the project website so users can run `curl -fsSL https://autogovern.dev/install.sh | sh`. The script: detects OS and architecture, installs `uv` if absent (user-local, no sudo), runs `uv tool install auto-govern`, verifies the binary is on PATH (appending the shell profile line if not), and finishes by printing the next step (`autogovern init`). Idempotent: safe to re-run, and re-running upgrades
-- **`install/install.ps1`** - PowerShell equivalent for Windows (`irm https://autogovern.dev/install.ps1 | iex`), same behaviour
-- **Install site** - a static page (GitHub Pages or Cloudflare Pages, custom domain) presenting tabbed install commands (curl, PowerShell, pip, pipx, uv) with copy buttons, serving the two scripts at stable URLs. The scripts are committed in the repo under `install/` and deployed from there, so they are reviewable and versioned like everything else
+- **`install/install.sh`** - POSIX shell installer served from a stable public URL so users can run `curl -fsSL <url>/install.sh | sh`. The script: detects OS and architecture, installs `uv` if absent (user-local, no sudo), runs `uv tool install autogovern`, verifies the binary is on PATH (appending the shell profile line if not), and finishes by printing the next step (`autogovern init`). Idempotent: safe to re-run, and re-running upgrades
+- **`install/install.ps1`** - PowerShell equivalent for Windows (`irm <url>/install.ps1 | iex`), same behaviour
+- **Install site (roadmap)** - a static page (GitHub Pages or Cloudflare Pages, custom domain) presenting tabbed install commands (curl, PowerShell, pip, pipx, uv) with copy buttons, serving the two scripts at stable URLs. The scripts are committed in the repo under `install/` and work from any stable URL (the GitHub raw URL until a domain exists), so they are reviewable and versioned like everything else. Not built: no domain or hosting exists yet
 - **Integrity** - HTTPS only; publish SHA-256 checksums for the scripts alongside each release; the scripts install only from PyPI and never require sudo
-- **Roadmap** - standalone binaries (PyInstaller) for environments without Python; an **npm wrapper package** built on those binaries (`npm install -g auto-govern`, plus pnpm and bun equivalents), following the pattern ruff, Biome, and esbuild use - a thin npm package whose platform-specific optional dependencies carry the prebuilt binary, giving JS-native teams their mainstream channel and filling the npm/pnpm/bun tabs on the install page; and a Homebrew tap, once adoption justifies them
+- **Roadmap** - standalone binaries (PyInstaller) for environments without Python; an **npm wrapper package** built on those binaries (`npm install -g autogovern`, plus pnpm and bun equivalents), following the pattern ruff, Biome, and esbuild use - a thin npm package whose platform-specific optional dependencies carry the prebuilt binary, giving JS-native teams their mainstream channel and filling the npm/pnpm/bun tabs on the install page; and a Homebrew tap, once adoption justifies them
 
 ## Non-functional requirements
 
@@ -322,7 +321,7 @@ Surfaces used - headless profile input, `serve`, workspace context, publishing c
 
 A development team builds agents in ordinary repos. No governance process exists; documentation is written by hand when someone remembers.
 
-1. A developer runs `pip install auto-govern && autogovern init` on one agent repo; the wizard captures org context and installs hooks and CI config in one sitting
+1. A developer runs `pip install autogovern && autogovern init` on one agent repo; the wizard captures org context and installs hooks and CI config in one sitting
 2. First `generate` produces the full document set and the AgentCard; the team reviews `QUICKSTART.md` once to understand what exists
 3. CI runs in gated mode initially - developers see red checks with exact remediation commands and build the habit
 4. After a few weeks the team switches to `check --fix` auto mode; documentation now maintains itself

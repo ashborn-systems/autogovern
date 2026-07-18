@@ -135,7 +135,7 @@ def test_every_document_has_valid_frontmatter(
         "section_hashes",
     }
     for doc in (gen_repo / GOV).iterdir():
-        if doc.name == "profile.lock" or not doc.is_file():
+        if doc.name in ("profile.lock", "context.lock") or not doc.is_file():
             continue
         text = doc.read_text()
         assert text.startswith("---"), f"{doc.name} missing frontmatter"

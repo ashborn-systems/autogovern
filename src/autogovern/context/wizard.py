@@ -1,14 +1,12 @@
 """Init wizard: writes ``.autogovern/config.yaml`` and ``.autogovern/context.yaml``.
 
-Phase 5 scope is config and context only. Hook and CI installation belong to
-Phase 10 and are invoked through the stub functions in
-:mod:`autogovern.hooks`, so the wizard calls them but they install nothing
-yet.
+The wizard also installs the pre-commit hook (unless ``--no-hooks``) and
+writes forge-appropriate CI configuration via :mod:`autogovern.hooks`.
 
-The module is a deep one: a small set of pure helpers (default context,
-provider-from-env, context-file import with structured errors) plus a single
-:func:`write_init` orchestrator that takes a ``confirm`` callable so all
-interactive IO lives in the CLI shell, not here.
+The module is a deep one: a small set of pure helpers (context-file import
+with structured errors, config building) plus a single :func:`write_init`
+orchestrator that takes a ``confirm`` callable so all interactive IO lives
+in the CLI shell, not here.
 """
 
 from __future__ import annotations
@@ -21,6 +19,7 @@ import yaml
 from pydantic import ValidationError
 
 from autogovern.context.defaults import default_context
+from autogovern.generate.writer import write_if_changed
 from autogovern.hooks import install_ci_config, install_pre_commit_hook
 from autogovern.models import (
     Config,
@@ -35,9 +34,6 @@ CONFIG_FILE = CONFIG_DIR / CONFIG_FILENAME
 CONTEXT_FILE = CONFIG_DIR / CONTEXT_FILENAME
 
 
-# Environment variables for non-interactive provider configuration. The key
-# itself is never read here; only the *name* of the env var holding it is
-# captured into config.yaml.
 class InitError(Exception):
     """Base class for init failures."""
 
@@ -158,14 +154,14 @@ def write_init(
             ci_message="skipped (existing config retained)",
         )
 
-    _atomic_write(config_path, _dump_config(config))
-    _atomic_write(context_path, _dump_context(context))
+    write_if_changed(config_path, _dump_config(config))
+    write_if_changed(context_path, _dump_context(context))
 
     if no_hooks:
         hook_message = "skipped (--no-hooks)"
     else:
         hook_message = install_pre_commit_hook(root, local_enforce=local_enforce)
-    ci_message = install_ci_config(root)
+    ci_message = install_ci_config(root, api_key_env=config.model_provider.api_key_env)
 
     return InitResult(
         config_path=config_path,
@@ -185,14 +181,6 @@ def _dump_context(context: ContextManifest) -> str:
     return yaml.safe_dump(
         context.model_dump(mode="json"), sort_keys=False, default_flow_style=False
     )
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    """Write text to path via a temp file rename so failures leave no partials."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
 
 
 __all__ = [

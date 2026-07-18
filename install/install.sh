@@ -1,6 +1,6 @@
 #!/bin/sh
 # autogovern installer (POSIX shell, uv-first, user-local, idempotent).
-# Usage: curl -fsSL https://autogovern.dev/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/ashborn-systems/autogovern/main/install/install.sh | sh
 set -e
 
 # Detect OS and architecture.
@@ -30,9 +30,9 @@ if ! command -v uv >/dev/null 2>&1; then
     export PATH="$UV_BIN:$PATH"
 fi
 
-# Install auto-govern as a uv tool (user-local, idempotent).
-echo "Installing auto-govern..."
-uv tool install auto-govern
+# Install autogovern as a uv tool (user-local, idempotent).
+echo "Installing autogovern..."
+uv tool install autogovern
 
 # Verify the binary is on PATH.
 if ! command -v autogovern >/dev/null 2>&1; then

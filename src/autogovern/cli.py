@@ -1,9 +1,9 @@
 """Typer CLI application for autogovern.
 
-Stub commands exit 0 with a "not implemented" message. The ``generate``
-command is wired to the config loader so that running it without a config
-file fails clearly (Phase 2 requirement). The ``scan`` command is fully
-implemented in Phase 4.
+Seven commands: ``init``, ``scan``, ``generate``, ``diff``, ``check``,
+``explain``, and ``hook`` (with ``install`` and ``run`` subcommands). The
+CLI is a thin shell over the library API (:mod:`autogovern.api`) and the
+package entry points; all interactive IO lives here.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from autogovern.explain import explain_document
 from autogovern.generate import generate_docs
 from autogovern.hooks import install_pre_commit_hook
 from autogovern.ingest import ScanResult, scan_repo
-from autogovern.models import Config, ContextManifest, ModelProviderConfig
+from autogovern.models import AgentProfile, Config, ContextManifest, ModelProviderConfig
 from autogovern.observability import build_manifest, write_manifest
 from autogovern.provider import build_provider
 
@@ -55,7 +55,7 @@ def init(
     ),
     no_hooks: bool = typer.Option(False, "--no-hooks", help="Skip pre-commit hook installation."),
     local_enforce: bool = typer.Option(
-        False, "--local-enforce", help="Also install the pre-push hook (Phase 10)."
+        False, "--local-enforce", help="Also install the pre-push hook (full check)."
     ),
     force: bool = typer.Option(
         False, "--force", help="Overwrite existing config/context without prompting."
@@ -233,9 +233,10 @@ def generate(
     cfg = _load_config_or_env_or_exit(config, model)
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
+    usage: dict[str, int | None] | None = None
     try:
         if profile_path is not None:
-            profile = load_profile(profile_path)
+            profile = _load_profile_or_exit(profile_path)
         else:
             scan_result = scan_repo(path, cfg, provider=provider, write_card=False)
             if not scan_result.signals_found or scan_result.profile is None:
@@ -250,10 +251,11 @@ def generate(
             provider=provider,
             context_from_file=context_from_file,
         )
+        usage = provider.total_usage
     finally:
         provider.close()
 
-    _write_generate_manifest(path, cfg, result)
+    _write_generate_manifest(path, cfg, result, token_counts=usage)
 
     if json_output:
         import json as _json
@@ -298,7 +300,7 @@ def diff(
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
     try:
-        profile = load_profile(profile_path) if profile_path is not None else None
+        profile = _load_profile_or_exit(profile_path) if profile_path is not None else None
         result = check_lib(
             path,
             cfg,
@@ -343,8 +345,9 @@ def check(
     cfg = _load_config_or_env_or_exit(config, model)
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
+    usage: dict[str, int | None] | None = None
     try:
-        profile = load_profile(profile_path) if profile_path is not None else None
+        profile = _load_profile_or_exit(profile_path) if profile_path is not None else None
         result = check_lib(
             path,
             cfg,
@@ -355,10 +358,11 @@ def check(
             context_from_file=context_from_file,
             profile=profile,
         )
+        usage = provider.total_usage
     finally:
         provider.close()
 
-    _write_check_manifest(path, cfg, result)
+    _write_check_manifest(path, cfg, result, token_counts=usage)
 
     if json_output:
         import json as _json
@@ -370,19 +374,14 @@ def check(
         typer.echo(
             f"check --fix: regenerated {len(result.stale_sections)} section(s), lockfile updated."
         )
+    elif result.band == "immaterial":
+        typer.echo(f"check: current (immaterial changes only, score {result.score}).")
     else:
         typer.echo(f"check: STALE (score {result.score}, {result.band})")
         typer.echo(f"  stale sections: {', '.join(result.stale_sections)}")
         typer.echo(f"  remediation: {result.remediation}")
 
-    # Exit code: 0 if current or (advisory and not strict), 1 if material or (advisory and strict).
-    if result.current:
-        raise typer.Exit(code=0)
-    if result.band == "advisory" and not strict:
-        raise typer.Exit(code=0)
-    if result.fixed:
-        raise typer.Exit(code=0)
-    raise typer.Exit(code=1)
+    raise typer.Exit(code=result.exit_code)
 
 
 @app.command()
@@ -414,17 +413,78 @@ def explain(
     typer.echo(f"Body lines: {result['body_lines']}")
 
 
-@app.command()
-def hook(
-    install: bool = typer.Option(True, "--install", help="Install hooks (default action)."),
+hook_app = typer.Typer(
+    help="Manage git hooks.",
+    no_args_is_help=True,
+)
+app.add_typer(hook_app, name="hook")
+
+
+@hook_app.command("install")
+def hook_install(
     local_enforce: bool = typer.Option(
-        False, "--local-enforce", help="Also install the pre-push hook."
+        False, "--local-enforce", help="Also install the pre-push hook (full check)."
     ),
 ) -> None:
-    """Re-install hooks manually if needed."""
-    root = Path.cwd()
-    msg = install_pre_commit_hook(root, local_enforce=local_enforce)
+    """Install the pre-commit hook (warning-only heuristic, never blocks)."""
+    msg = install_pre_commit_hook(Path.cwd(), local_enforce=local_enforce)
     typer.echo(msg)
+
+
+@hook_app.command("run")
+def hook_run(
+    files: list[str] | None = typer.Argument(
+        None, help="Changed files to check. Defaults to the staged file list."
+    ),
+    staged: bool = typer.Option(
+        False, "--staged", help="Check the staged file list (explicit default)."
+    ),
+) -> None:
+    """Heuristic governance-impact check: prints a flag, always exits 0.
+
+    This is the pre-commit entrypoint: no LLM, no profile rebuild, no
+    blocking. A positive result warns that governance docs may need
+    regenerating; the commit always proceeds.
+    """
+    from autogovern.detect.heuristic import heuristic_pass
+
+    changed = list(files) if files else _staged_files()
+    result = heuristic_pass(changed, _watched_paths_for_hook())
+    if result.matched:
+        typer.echo("governance impact: yes")
+        typer.echo(f"  matched: {', '.join(result.matched_paths)}")
+        typer.echo("  docs may need regenerating; run `autogovern generate` before merge.")
+    else:
+        typer.echo("governance impact: no")
+
+
+def _staged_files() -> list[str]:
+    """The staged file list from git, or [] when git is unavailable."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _watched_paths_for_hook() -> list[str]:
+    """Watched paths from config, falling back to the model defaults."""
+    from autogovern.config_loader import load_config
+    from autogovern.models import DEFAULT_WATCHED_PATHS
+
+    try:
+        return load_config().watched_paths
+    except (ConfigNotFoundError, ConfigInvalidError):
+        return list(DEFAULT_WATCHED_PATHS)
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +507,18 @@ def _load_config_or_env_or_exit(config: Path | None, model: str | None = None) -
             update={"model_provider": cfg.model_provider.model_copy(update={"model": model})}
         )
     return cfg
+
+
+def _load_profile_or_exit(profile_path: Path) -> AgentProfile:
+    """Load a --profile JSON file, exiting cleanly on any read/parse error."""
+    try:
+        return load_profile(profile_path)
+    except FileNotFoundError:
+        typer.echo(f"Profile file not found: {profile_path}", err=True)
+        raise typer.Exit(code=1) from None
+    except Exception as exc:
+        typer.echo(f"Invalid AgentProfile in {profile_path}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _load_context_or_default_or_exit() -> tuple[ContextManifest, bool]:
@@ -502,7 +574,12 @@ def _join_or_none(items: list[str]) -> str:
     return ", ".join(items) if items else "none"
 
 
-def _write_generate_manifest(root: Path, config: Config, result: object) -> None:
+def _write_generate_manifest(
+    root: Path,
+    config: Config,
+    result: object,
+    token_counts: dict[str, int | None] | None = None,
+) -> None:
     """Write a run manifest for a generate command."""
     sections = [
         {"section": doc, "changed_input": "input hash changed"}
@@ -513,12 +590,18 @@ def _write_generate_manifest(root: Path, config: Config, result: object) -> None
         config=config,
         sections_regenerated=sections,
         model_id=config.model_provider.model,
+        token_counts=token_counts,
         prompt_template_versions={"generation": "generation-1.0.0"},
     )
     write_manifest(root, manifest)
 
 
-def _write_check_manifest(root: Path, config: Config, result: object) -> None:
+def _write_check_manifest(
+    root: Path,
+    config: Config,
+    result: object,
+    token_counts: dict[str, int | None] | None = None,
+) -> None:
     """Write a run manifest for a check command."""
     detection = getattr(result, "detection", None)
     materiality = None
@@ -533,6 +616,7 @@ def _write_check_manifest(root: Path, config: Config, result: object) -> None:
         command="check",
         config=config,
         model_id=config.model_provider.model,
+        token_counts=token_counts,
         materiality=materiality,
     )
     write_manifest(root, manifest)

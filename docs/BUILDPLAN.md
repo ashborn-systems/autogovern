@@ -1,10 +1,10 @@
 ---
-title: "auto-govern - build plan"
+title: "autogovern - build plan"
 created: 2026-07-17
 updated: 2026-07-17
 tags:
-  - projects/auto-govern
-source: SPEC.md
+  - projects/autogovern
+source: docs/SPEC.md
 ---
 
 ## How to use this plan
@@ -13,9 +13,9 @@ Execute the phases in order. Each phase has a **Build** list and a **Validate** 
 
 Global rules for the whole build:
 
-- The spec (`SPEC.md`) is authoritative. If this plan and the spec conflict, the spec wins; note the conflict in `BUILDLOG.md`
+- The spec (`docs/SPEC.md`) is authoritative. If this plan and the spec conflict, the spec wins; note the conflict in `docs/BUILDLOG.md`
 - All tests mock the model provider. No test may call a live LLM. A separate optional smoke test (`make smoke`) runs live only when `AUTOGOVERN_SMOKE=1` and a provider is configured
-- Every phase ends with a commit. Keep `BUILDLOG.md` at the repo root: one line per phase with date, phase number, and validation result
+- Every phase ends with a commit. Keep `docs/BUILDLOG.md` up to date: one line per phase with date, phase number, and validation result
 - Determinism is a feature: any test that passes intermittently is a failing test
 - Apply the bundled `skills/project-setup` skill for Phase 0 (Python track: uv, src layout, gitleaks pre-commit, CI mirroring local gates, eval-shaped tests from the start)
 - Apply the bundled `skills/ai-native-codebase-design` skill throughout: spec-anchored SDD (this plan and SPEC.md are the spec; acceptance criteria map to tests), deep modules with minimal interfaces, interface-first generation, and design-it-twice for the provider client, the pack loader, and the generation engine
@@ -24,7 +24,7 @@ Global rules for the whole build:
 
 **Build**
 
-- `pyproject.toml` (package name `auto-govern`, module `autogovern`, Python 3.12+, deps: typer, pydantic v2, pyyaml, jinja2, httpx)
+- `pyproject.toml` (package name `autogovern`, module `autogovern`, Python 3.12+, deps: typer, pydantic v2, pyyaml, httpx)
 - Package layout exactly as the spec's repository layout section
 - Typer app in `cli.py` with stub commands: `init`, `scan`, `generate`, `diff`, `check`, `explain`, `hook`
 - `Makefile` targets: `install`, `test`, `lint`, `check-all`
@@ -131,7 +131,7 @@ Global rules for the whole build:
 
 **Build**
 
-- Jinja2 templates per document, sections derived from the pack's artefact templates via `document_feeds`; engine templates for QUICKSTART, ATTENTION, CHANGELOG, and data-protection
+- Prompt-built document templates per document, sections derived from the pack's artefact templates via `document_feeds`; engine templates for QUICKSTART, ATTENTION, CHANGELOG, and data-protection
 - Section-level generation: each section prompt receives only its declared inputs; prompts embed the style authority rules
 - Input-hash storage in frontmatter; regeneration only for sections whose input hash changed
 - Frontmatter: doc_version, agent_version, generated, generator_version, input_hashes, framework_pack_version
@@ -233,7 +233,7 @@ n- `config_loader.py` gains `load_config_or_env()` and `load_context_or_default(
 - One E2E test driving the full journey on a fresh temp repo: init --defaults → generate → idempotent regenerate → material edit → check fails → check --fix → check passes → manifests and changelog inspected
 - README: install, quickstart (Journey B from the spec), config reference, CI setup per forge, headless usage
 - `pre-commit-hooks.yaml` for the pre-commit framework; `action/` GitHub Action wrapping check and generate
-- `install/install.sh` and `install/install.ps1` per the spec's distribution section (uv-first, user-local, idempotent, PATH check, prints `autogovern init` on success), plus a static install page under `site/` with tabbed commands
+- `install/install.sh` and `install/install.ps1` per the spec's distribution section (uv-first, user-local, idempotent, PATH check, prints `autogovern init` on success). The static install page under `site/` was descoped post-build (no domain or hosting yet; scripts work from the GitHub raw URL; page recorded as roadmap in SPEC.md and README)
 - Version 0.1.0, changelog, licence file (Apache-2.0), `make build` producing a wheel
 
 **Validate**
@@ -241,7 +241,7 @@ n- `config_loader.py` gains `load_config_or_env()` and `load_context_or_default(
 - The E2E test passes in CI from a clean environment
 - All seven acceptance criteria in SPEC.md pass, each mapped to a named test (`tests/test_acceptance.py` with one test per criterion)
 - `pip install dist/*.whl` in a fresh venv, then `autogovern --help`, succeeds
-- `sh install/install.sh` in a clean container (no uv, no auto-govern) ends with `autogovern --help` working and is safe to run a second time; `shellcheck install/install.sh` passes
+- `sh install/install.sh` in a clean container (no uv, no autogovern) ends with `autogovern --help` working and is safe to run a second time; `shellcheck install/install.sh` passes
 - `make check-all` green; `make smoke` documented as the optional live-provider check
 
 ## Exit condition

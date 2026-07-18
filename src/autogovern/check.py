@@ -17,14 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from autogovern.detect import DetectionResult, detect_material_change
-from autogovern.frameworks import Pack, load_pack
-from autogovern.generate import generate_docs
-from autogovern.generate.lockfile import read_lockfile
+from autogovern.frameworks import Pack, load_pack, to_graph_input
+from autogovern.generate import GOVERNANCE_DIR, generate_docs
+from autogovern.generate.lockfile import read_context_lock, read_lockfile
 from autogovern.ingest import scan_repo
 from autogovern.models import Config, ContextManifest
 from autogovern.provider import ProviderClient
-
-GOVERNANCE_DIR = Path("governance")
 
 
 @dataclass
@@ -38,15 +36,24 @@ class CheckResult:
     changed_fields: list[str] = field(default_factory=list)
     remediation: str = ""
     fixed: bool = False
+    strict: bool = False
     detection: DetectionResult | None = None
 
     @property
     def exit_code(self) -> int:
-        if self.current:
+        """The single source of truth for the CLI exit code.
+
+        0: current, fixed, immaterial (passes silently per the spec), or
+           advisory without --strict.
+        1: material, or advisory with --strict.
+        """
+        if self.current or self.fixed:
             return 0
-        if self.band == "advisory":
-            return 0  # advisory does not block by default
-        return 1  # material
+        if self.band == "immaterial":
+            return 0
+        if self.band == "advisory" and not self.strict:
+            return 0
+        return 1
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -95,8 +102,9 @@ def run_check(
         )
     current_profile = scan_result.profile
 
-    # Step 2: diff against the lockfile.
+    # Step 2: diff against the lockfiles.
     locked_profile = read_lockfile(governance_dir)
+    locked_context = read_context_lock(governance_dir)
 
     # Step 3-4: detect and score.
     detection = detect_material_change(
@@ -104,6 +112,8 @@ def run_check(
         config=config,
         locked_profile=locked_profile,
         current_profile=current_profile,
+        locked_context=locked_context,
+        current_context=context,
         provider=provider,
         ci_mode=True,
     )
@@ -131,6 +141,8 @@ def run_check(
         detection=detection,
     )
 
+    result.strict = strict
+
     # Step 5: --fix regenerates in place.
     if fix:
         generate_docs(
@@ -141,21 +153,9 @@ def run_check(
             provider=provider,
             pack=pack,
             context_from_file=context_from_file,
+            materiality=detection.materiality,
         )
         result.fixed = True
-        return result
-
-    # Strict mode: advisory also fails.
-    if strict and result.band == "advisory":
-        return CheckResult(
-            current=False,
-            score=materiality.score,
-            band="advisory",
-            stale_sections=stale_sections,
-            changed_fields=changed_fields,
-            remediation="autogovern generate  # advisory: regenerate to clear",
-            detection=detection,
-        )
 
     return result
 
@@ -164,24 +164,10 @@ def _stale_sections(changed_fields: list[str], pack: Pack) -> list[str]:
     """Map changed profile/context fields to affected documents via the graph."""
     sections: set[str] = set()
     for changed in changed_fields:
-        # Map diff field names to graph input paths.
-        graph_input = _to_graph_input(changed)
+        graph_input = to_graph_input(changed)
         if graph_input:
             sections.update(pack.graph.affected_documents(graph_input))
     return sorted(sections)
-
-
-def _to_graph_input(field: str) -> str | None:
-    """Convert a diff field name to a graph input path."""
-    # The diff uses field names like "governance.model_configuration";
-    # the graph uses "profile.governance.model_configuration".
-    if field.startswith("governance.") or field in ("name", "description", "version"):
-        return f"profile.{field}"
-    if field.startswith("context."):
-        return field
-    if field.startswith("governance.prompt_inventory."):
-        return "profile.governance.prompt_inventory"
-    return None
 
 
 __all__ = ["CheckResult", "run_check"]

@@ -8,10 +8,9 @@ means no profile rebuild is needed, so the expensive passes never run.
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from autogovern.models import Config
 
 
 @dataclass
@@ -22,12 +21,16 @@ class HeuristicResult:
     matched_paths: list[str] = field(default_factory=list)
 
 
-def heuristic_pass(changed_files: list[str | Path], config: Config) -> HeuristicResult:
+def heuristic_pass(
+    changed_files: Iterable[str | Path], watched_paths: list[str]
+) -> HeuristicResult:
     """Check whether any changed file matches the watched-path globs.
 
     Args:
-        changed_files: Paths that changed (relative to repo root, or absolute).
-        config: The config whose ``watched_paths`` globs define the watched set.
+        changed_files: Paths that changed (relative to repo root).
+        watched_paths: The glob set defining the watched paths (typically
+            ``Config.watched_paths``; the pre-commit hook falls back to the
+            model defaults when no config exists).
 
     Returns:
         A :class:`HeuristicResult`. ``matched`` is True if any changed file
@@ -36,7 +39,7 @@ def heuristic_pass(changed_files: list[str | Path], config: Config) -> Heuristic
     matched: list[str] = []
     for raw in changed_files:
         rel = _to_rel(raw)
-        for pattern in config.watched_paths:
+        for pattern in watched_paths:
             if _glob_match(rel, pattern):
                 matched.append(rel)
                 break
