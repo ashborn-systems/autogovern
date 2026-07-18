@@ -106,5 +106,5 @@ tests/
 
 ## Phase status
 
-Phase 0 (scaffold) is complete. Next: Phase 1 — data models (AgentCard,
-AgentProfile, ContextManifest, Config, RunManifest). See `BUILDPLAN.md`.
+Phases 0-4 are complete. Next: Phase 5 — init (config and context wizard).
+See `BUILDPLAN.md` and `BUILDLOG.md`.

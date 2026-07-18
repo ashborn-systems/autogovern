@@ -73,3 +73,29 @@ One line per phase: date, phase number, validation result. Detailed completion n
   - Did not add a TOML parse check for the `pyproject.toml` fixtures; the Phase 3 gate names JSON/YAML only, and the scanner's manifest parsing is exercised by Phase 4.
 
   Validation: ruff check clean, ruff format clean, mypy strict (14 source files, no issues), pytest 75 passed (6 CLI + 29 models + 16 provider + 17 secrets + 7 fixtures).
+
+- 2026-07-18 — Phase 4 (scanner and AgentCard construction) — PASS: `pytest tests/test_scan.py tests/test_parsers.py tests/test_scan_cli.py tests/test_perf.py` green (34 new tests); all five Phase 4 validation criteria covered by named tests; `make check-all` green (ruff + mypy + 113 tests).
+
+  **Phase 4 completion notes:**
+
+  Built the `ingest/` package as a functional core behind a thin orchestration shell, applying the ai-native-codebase-design skill (deep modules, interface-first, deterministic core isolated from LLM I/O):
+  1. **`ingest/discovery.py`** — deterministic two-phase file discovery. `discover_signals()` finds signal-bearing files (instruction, README, MCP, manifests, prompts, agent card) via specific globs; `discover_source_files()` scans `.py/.ts/.js` only when signals exist, so non-agent repos pay nothing. Sorts all results by path; computes sha256 content hashes; ignores vendored/build/tool-owned dirs (`.venv`, `governance`, `.autogovern`, etc.).
+  2. **`ingest/parsers.py`** — pure parsing into typed records: MCP tools (across servers, sorted), dependencies (pyproject via stdlib `tomllib`, package.json, requirements.txt), model config (model name, temperature, api_base, provider import — all case-insensitive with word boundaries), env-var references (`os.environ`/`os.getenv`), and project metadata.
+  3. **`ingest/summarise.py`** — the single LLM seam. `summarise_free_text()` sends instruction files + README to the provider and returns a `FreeTextSummary` (data_categories, description/skills fallback). A missing or failing provider degrades gracefully (empty summary) rather than aborting the scan.
+  4. **`ingest/builder.py`** — pure profile assembly. `build_profile()` merges sources by fixed precedence (existing card > manifest metadata > LLM summary > default) and attaches provenance to every field. `profile_to_card()` projects back to a standards-compliant AgentCard.
+  5. **`ingest/scanner.py`** — the shell. `scan_repo(root, config, *, provider=None, write_card=True) -> ScanResult` orchestrates discovery → parse → summarise → build → card write. Owns the provider lifecycle when it constructs one. `ScanResult` carries the profile, signals_found flag, and card-written status, with `to_json()` for `--json`.
+
+  CLI `scan` command: loads config (exits 1 mentioning `init` if missing, like `generate`), builds the provider via a new `build_provider(config)` factory in `provider.py` (the seam tests monkeypatch), and prints JSON (`--json`) or a human table. `--no-write-card` suppresses card writing; `--config` overrides the config path.
+
+  Fixture enrichment: added `src/support_triage_agent.py` to `fixture-basic/` and `fixture-carded/` (mirrored, keeping them identical-but-for-card). The file declares `MODEL = "claude-3-5-sonnet"`, `TEMPERATURE = 0.0`, `from anthropic import Anthropic`, and `os.environ["ANTHROPIC_API_KEY"]` — giving the scanner deterministic model-configuration and permission/env-var surface signals that no Phase 3 fixture file provided. Updated `tests/fixtures/README.md`.
+
+  Design decisions:
+  - Two-phase discovery so `fixture-plain` (no signals) never reads source code, and a 10k-file scan completes in 0.12 s (bound 5 s). Glob-driven, not a full tree walk.
+  - Model config derived from source-level signals (assignment regex then known-prefix fallback), with the provider corroborated by both import scan and manifest deps. Provenance points at the single source file that yielded model + provider, which is honest for the common case where both live in the same file.
+  - Only `data_categories` is LLM-derived for `fixture-basic`; name/description/version come from pyproject (deterministic). This keeps the determinism gate meaningful: all non-LLM fields are byte-identical across scans, provenance hashes included.
+  - Constructed AgentCards set `url=""` (no git-remote derivation in v1); the verifier/attention ledger (Phase 8) is the right place to flag that gap.
+  - Discovery globs are internal defaults, documented in `discovery.py`'s module docstring, separate from `Config.watched_paths` (which drives Phase 9 change detection). The config reference is deferred to the Phase 13 README.
+  - Added `extend-immutable-calls = ["typer.Argument", "typer.Option"]` to the ruff config — the canonical Typer+ruff fix, now that real commands carry typed argument defaults.
+
+  Validation: ruff check clean, ruff format clean, mypy strict (19 source files, no issues), pytest 113 passed (5 CLI + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 22 secrets). The secrets-discipline grep now parametrises over all six new ingest modules, confirming none persists the API key. No live LLM call in any test.
+

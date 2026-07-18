@@ -14,6 +14,10 @@ A representative agent repo with the standard signals a scanner must find:
 - `.mcp.json` — MCP config with **two tools** (`fetch_ticket`, `assign_ticket`)
 - `prompts/system.md` — a prompt file
 - `pyproject.toml` — dependency manifest (anthropic, httpx)
+- `src/support_triage_agent.py` — agent source: model name
+  (`claude-3-5-sonnet`), temperature (`0.0`), provider import (anthropic), and
+  an env-var reference (`ANTHROPIC_API_KEY`). Gives the scanner deterministic
+  model-configuration and permission/env-var surface signals.
 
 **No** `.well-known/agent.json` — proves the scanner constructs a card when
 absent. Used by Phase 4 (scan writes a card), Phase 7 (generate), and the

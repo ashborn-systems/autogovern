@@ -43,6 +43,11 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.flake8-bugbear]
+# Typer commands declare options/arguments as defaults; these calls are
+# immutable config objects, not mutable defaults.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

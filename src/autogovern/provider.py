@@ -238,10 +238,20 @@ class ProviderClient:
             raise ProviderResponseError(f"Provider response was not valid JSON: {exc}") from exc
 
 
+def build_provider(config: Config) -> ProviderClient:
+    """Construct a ProviderClient from config.
+
+    This factory is the seam tests monkeypatch to inject a mocked transport
+    without touching the CLI's config-loading logic.
+    """
+    return ProviderClient(config)
+
+
 __all__ = [
     "MissingApiKeyError",
     "ProviderClient",
     "ProviderError",
     "ProviderResponseError",
     "ProviderUnreachableError",
+    "build_provider",
 ]

@@ -12,9 +12,9 @@ from autogovern.cli import app
 runner = CliRunner()
 
 # Stubs that still exit 0 with a not-implemented message.
+# (scan is fully implemented in Phase 4; generate exits 1 without config.)
 ZERO_EXIT_STUBS = [
     ("init", "init: not implemented"),
-    ("scan", "scan: not implemented"),
     ("diff", "diff: not implemented"),
     ("check", "check: not implemented"),
     ("hook", "hook: not implemented"),
