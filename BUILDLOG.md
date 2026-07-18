@@ -125,3 +125,29 @@ One line per phase: date, phase number, validation result. Detailed completion n
   - The written `config.yaml` round-trips through the Phase 2 `load_config`, and the written `context.yaml` round-trips through `ContextManifest.model_validate`, proving the Phase 5 output is consumable by the phases that follow.
 
   Validation: ruff check clean, ruff format clean, mypy strict (20 source files, no issues), pytest 133 passed (5 CLI + 20 init + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 23 secrets). No live LLM call in any test.
+
+- 2026-07-18 — Phase 6 (framework pack loader) — PASS: `pytest tests/test_pack.py` green (21 tests: bundled pack resolves every reference with zero warnings, dangling file/numbered/slug/framework references each fail loading with the exact bad reference named, graph query for model_configuration returns system-card and inventory only, graph query for unknown input returns empty, deterministic across loads); `make check-all` green (ruff + mypy + 156 tests).
+
+  **Phase 6 completion notes:**
+
+  Built `src/autogovern/frameworks/loader.py`, `src/autogovern/frameworks/__init__.py`, and `tests/test_pack.py`. Enriched `frameworks/pack.yaml` with `profile_inputs` and `context_inputs` declarations on every document feed so the section dependency graph is fully data-driven.
+
+  The loader is a deep module: a single `load_pack(pack_dir=None) -> Pack` entry point over a pure resolver core. `Pack` carries the resolved style authority, verifier rubric, enterprise hooks, document feeds, scope notes, and a ready-to-query `SectionDependencyGraph`. Resolution is eager — a single dangling reference aborts the load, so the generation engine never sees a half-resolved pack.
+
+  Reference resolver (`resolve_section`) handles three syntaxes, all relative to the pack directory:
+  - `file.md` (whole file): returns the H1 title plus full content.
+  - `file.md#N` (numbered): finds the `## N. Title` heading and returns it plus the body up to the next sibling `## ` heading. Sub-headings (`###`) are included in the body; the section stops at the next `##`, not EOF.
+  - `file.md#slug` (slug fragment): matches a heading by slugified text. Matches on exact slug or a prefix at a word boundary, so the style-authority reference `skill-source.md#writing-rules-for-all-output` resolves the long heading "Writing rules for all output — avoid common AI language, ticks, and style". Em/en dashes are normalised to spaces before slugifying so the dash acts as a phrase boundary.
+
+  Section dependency graph: `SectionDependencyGraph` holds a forward index (document → inputs) and a reverse index (input → documents). `affected_documents(changed_input)` returns a sorted list, so the output is deterministic and git-stable. The reverse index lets the material-change detector (Phase 9) ask "which sections depend on this profile/context field?" in constant time with zero LLM calls — the prerequisite for the token-efficiency mechanism.
+
+  Data-driven inputs: added `profile_inputs` and `context_inputs` lists to every `document_feeds` entry in `pack.yaml`. The spec says section inputs are declared "in the template", but keeping them in `pack.yaml` honours the spec's parallel instruction to "keep document definitions data-driven (templates plus pack.yaml wiring)" and lets Phase 6 build and test the graph before the Jinja2 templates exist (Phase 7). Input paths use dotted notation against the Phase 1 models: `profile.governance.model_configuration`, `context.autonomy_level`, etc.
+
+  Design decisions:
+  - Model configuration (`profile.governance.model_configuration`) feeds only `system-card.md` and `inventory.md`. This is the load-bearing Phase 6 gate and the acceptance contract for Phase 9's deterministic scoring: a model swap is material and affects exactly those two sections. Other documents that touch the agent's behaviour (risk-assessment, oversight, incident-response) depend on `permissions_surface`, `capabilities`, and context fields instead, so a model-id change does not cascade across the whole document set.
+  - `QUICKSTART.md`, `ATTENTION.md`, and `CHANGELOG.md` declare no profile/context inputs. They are engine-generated from generation results, not from profile fields, so they are absent from the reverse index. Their regeneration is driven by the Phase 7 engine, not the graph.
+  - The verifier rubric is a whole-file reference (`agentic-business-case/rubric.md`, no fragment) because the verifier scores against the full in-scope subset of the rubric, not a single section. The scope notes on the `agentic-business-case` framework entry record which rubric sections apply; Phase 8 consumes them.
+  - `data-protection.md` has `templates: []` and one knowledge reference, matching the pack's note that it has no dedicated artefact template in v1. The engine template (Phase 7) fills the gap; the divergence is documented in the pack comment.
+  - The loader resolves references against `BUNDLED_PACK_DIR` (the directory shipping `pack.yaml`) by default, so the enterprise tier swaps the pack by passing a different `pack_dir` — no engine changes, the seam the spec requires.
+
+  Validation: ruff check clean, ruff format clean, mypy strict (22 source files, no issues), pytest 156 passed (5 CLI + 20 init + 21 pack + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 23 secrets). No live LLM call in any test.

@@ -57,43 +57,97 @@ document_feeds:
       - agentic-governance/governance-frameworks.md#10               # MCP and A2A
       - agentic-business-case/frameworks.md#3                        # 7-point agentic viability checklist (intended-purpose justification)
       - agentic-business-case/frameworks.md#4                        # rule of ten (intended-purpose justification)
+    profile_inputs:
+      - profile.name
+      - profile.description
+      - profile.version
+      - profile.governance.model_configuration
+      - profile.governance.capabilities
+      - profile.governance.skills
+    context_inputs:
+      - context.autonomy_level
+      - context.intended_users
+      - context.deployment_context
   risk-assessment.md:
     templates: [agentic-governance/governance-artefacts.md#2]        # Risk to control mapping
     knowledge:
       - agentic-governance/governance-frameworks.md#2                # six risk vectors + red-team vectors
       - agentic-governance/governance-frameworks.md#8                # first-principles risk assessment
+    profile_inputs:
+      - profile.governance.permissions_surface
+      - profile.governance.data_categories
+      - profile.governance.capabilities
+    context_inputs:
+      - context.risk_appetite
+      - context.jurisdictions
+      - context.sector
   inventory.md:
     templates: [agentic-governance/governance-artefacts.md#1]        # Central agent register entry
     knowledge:
       - agentic-governance/governance-frameworks.md#1                # lifecycle step 1: ownership and register
+    profile_inputs:
+      - profile.governance.model_configuration
+      - profile.governance.permissions_surface
+      - profile.governance.dependencies
+      - profile.governance.prompt_inventory
+    context_inputs: []
   oversight.md:
     templates: [agentic-governance/governance-artefacts.md#4]        # Deployment blueprint
     knowledge:
       - agentic-governance/governance-frameworks.md#9                # accountability and ownership
       - agentic-governance/governance-frameworks.md#3                # autonomy layers
+    profile_inputs:
+      - profile.governance.permissions_surface
+    context_inputs:
+      - context.autonomy_level
+      - context.oversight_model
+      - context.owner
   testing.md:
     templates: [agentic-governance/governance-artefacts.md#6]        # Pre-deployment checklist
     knowledge:
       - agentic-governance/governance-frameworks.md#4                # testing methodologies
       - agentic-governance/governance-frameworks.md#5                # governance metrics
       - agentic-governance/governance-frameworks.md#6                # sandbox environments
+    profile_inputs:
+      - profile.governance.capabilities
+      - profile.governance.skills
+      - profile.governance.permissions_surface
+    context_inputs:
+      - context.review_cadence
   incident-response.md:
     templates: [agentic-governance/governance-artefacts.md#5]        # Monitoring and incident-response plan
     knowledge:
       - agentic-governance/governance-frameworks.md#1                # lifecycle steps 4 and 5: monitoring; failure preparation
+    profile_inputs:
+      - profile.governance.permissions_surface
+    context_inputs:
+      - context.owner
+      - context.review_cadence
   data-protection.md:
     templates: []                                                    # engine template; no dedicated artefact in this pack version
     knowledge:
       - agentic-governance/governance-frameworks.md#7                # regulatory landscape and deployment liability
+    profile_inputs:
+      - profile.governance.data_categories
+    context_inputs:
+      - context.jurisdictions
+      - context.deployment_context
+      - context.sector
   QUICKSTART.md:
     templates: []                                                    # engine-generated
     knowledge: []
+    profile_inputs: []
+    context_inputs: []
   ATTENTION.md:
     templates: []                                                    # engine-generated
     knowledge: []
+    profile_inputs: []
+    context_inputs: []
   CHANGELOG.md:
     templates: []                                                    # engine-generated
     knowledge: []
+    profile_inputs: []
+    context_inputs: []
 
 # Enterprise seam: the runbook maps to run mode / scheduled drift checks.
 # Cadence table and loop steps in ongoing-governance-runbook.md define what a
