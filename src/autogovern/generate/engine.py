@@ -29,11 +29,29 @@ from autogovern.generate.inputs import (
     extract_input,
     profile_file_hashes,
 )
+from autogovern.generate.ledger import (
+    LEDGER_FILENAME,
+    AttentionLedger,
+    stable_item_id,
+)
 from autogovern.generate.lockfile import write_lockfile
 from autogovern.generate.prompts import build_section_messages
 from autogovern.generate.writer import write_if_changed
-from autogovern.models import AgentProfile, Config, ContextManifest
+from autogovern.models import (
+    AgentProfile,
+    AttentionItem,
+    Config,
+    ContextManifest,
+    DataCategory,
+    VerifierResult,
+)
 from autogovern.provider import ProviderClient
+from autogovern.verify import (
+    SectionVerification,
+    remove_unsupported_claims,
+    to_manifest_result,
+    verify_section,
+)
 
 GOVERNANCE_DIR = Path("governance")
 
@@ -62,8 +80,11 @@ class GenerationResult:
     regenerated: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     llm_call_count: int = 0
+    verifier_call_count: int = 0
     written_files: list[Path] = field(default_factory=list)
     pack_version: str = ""
+    verifier_results: list[VerifierResult] = field(default_factory=list)
+    attention_items: list[AttentionItem] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
@@ -97,6 +118,10 @@ def generate_docs(
     file_hashes = profile_file_hashes(profile)
     enabled = _enabled_documents(config)
 
+    # Load the existing attention ledger so items persist and close across runs.
+    ledger = _load_ledger(governance_dir)
+    timestamp = now_iso()
+
     for doc in LLM_DOCS:
         if doc not in enabled:
             continue
@@ -113,9 +138,14 @@ def generate_docs(
             pack,
             file_hashes,
             result,
+            ledger,
+            timestamp,
         )
 
-    _write_engine_docs(governance_dir, config, pack, profile, result)
+    # Generation-time gaps (e.g. scan finds data but context declares none).
+    _detect_generation_gaps(profile, context, ledger, timestamp, result)
+
+    _write_engine_docs(governance_dir, config, pack, profile, result, ledger, timestamp)
     write_lockfile(governance_dir, profile)
     return result
 
@@ -135,6 +165,8 @@ def _maybe_regenerate_llm_doc(
     pack: Pack,
     file_hashes: dict[str, str],
     result: GenerationResult,
+    ledger: AttentionLedger,
+    timestamp: str,
 ) -> None:
     declared = _resolve_declared_inputs(feed, profile, context)
     new_hash = compute_section_hash(declared, [s.content for s in feed.pack_sections], pack.version)
@@ -149,10 +181,15 @@ def _maybe_regenerate_llm_doc(
     result.llm_call_count += 1
     result.regenerated.append(doc)
 
+    # Verifier pass: check claims, remove unsupported ones, open ledger items.
+    body = _verify_and_clean(
+        doc, body, feed, declared, file_hashes, provider, pack, result, ledger, timestamp
+    )
+
     frontmatter = build_frontmatter(
         doc_version=_short_hash(new_hash),
         agent_version=profile.version,
-        generated=now_iso(),
+        generated=timestamp,
         generator_version=_generator_version(),
         input_hashes=file_hashes,
         framework_pack_version=pack.version,
@@ -190,6 +227,8 @@ def _write_engine_docs(
     pack: Pack,
     profile: AgentProfile,
     result: GenerationResult,
+    ledger: AttentionLedger,
+    timestamp: str,
 ) -> None:
     file_hashes = profile_file_hashes(profile)
     common = _Common(
@@ -202,19 +241,33 @@ def _write_engine_docs(
     # QUICKSTART: regenerate only if something changed this run.
     if result.changed:
         body = _quickstart_body(profile, result)
-        fm = _engine_frontmatter("QUICKSTART", _short_hash(body), now_iso(), common)
+        fm = _engine_frontmatter("QUICKSTART", _short_hash(body), timestamp, common)
         if _write_engine_doc_if_body_changed(governance_dir / "QUICKSTART.md", fm, body):
             result.written_files.append(governance_dir / "QUICKSTART.md")
 
-    # ATTENTION: empty ledger in Phase 7 (Phase 8 manages its content).
-    att_body = "# Attention ledger\n\nNo attention items. The governance set is fully automated.\n"
-    att_fm = _engine_frontmatter("ATTENTION", _short_hash(att_body), now_iso(), common)
-    if _write_engine_doc_if_body_changed(governance_dir / "ATTENTION.md", att_fm, att_body):
-        result.written_files.append(governance_dir / "ATTENTION.md")
+    # ATTENTION: written from the ledger on every run.
+    att_path = governance_dir / LEDGER_FILENAME
+    att_content = ledger.to_markdown(
+        generated=timestamp,
+        agent_version=profile.version,
+        generator_version=common.generator_version,
+        framework_pack_version=pack.version,
+        input_hashes=file_hashes,
+    )
+    # The ledger body (not frontmatter) is what changes; compare bodies so
+    # an unchanged ledger keeps its existing timestamp (idempotence).
+    _fm_existing, existing_body = (
+        parse_frontmatter(att_path.read_text(encoding="utf-8")) if att_path.is_file() else ({}, "")
+    )
+    _, new_body = parse_frontmatter(att_content)
+    if (
+        new_body.lstrip("\n") != existing_body.lstrip("\n") or not att_path.is_file()
+    ) and write_if_changed(att_path, att_content):
+        result.written_files.append(att_path)
 
     # CHANGELOG: append-only, one entry per run that regenerated something.
     if result.changed:
-        _append_changelog(governance_dir / "CHANGELOG.md", common, result)
+        _append_changelog(governance_dir / "CHANGELOG.md", common, result, timestamp)
 
 
 def _write_engine_doc_if_body_changed(
@@ -260,15 +313,127 @@ def _quickstart_body(profile: AgentProfile, result: GenerationResult) -> str:
     return "\n".join(lines)
 
 
-def _append_changelog(path: Path, common: _Common, result: GenerationResult) -> None:
+def _append_changelog(
+    path: Path, common: _Common, result: GenerationResult, timestamp: str
+) -> None:
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
     _fm_existing, body_existing = parse_frontmatter(existing) if existing else ({}, "")
-    timestamp = now_iso()
     entry = f"## {timestamp} — regenerated: {', '.join(result.regenerated)}\n"
     new_body = (body_existing.lstrip("\n") + "\n" + entry) if body_existing.strip() else entry
     fm = _engine_frontmatter("CHANGELOG", _short_hash(new_body), timestamp, common)
     if write_if_changed(path, render_document(fm, new_body)):
         result.written_files.append(path)
+
+
+# ---------------------------------------------------------------------------
+# Verifier and ledger integration
+# ---------------------------------------------------------------------------
+
+
+def _verify_and_clean(
+    doc: str,
+    body: str,
+    feed: DocumentFeed,
+    declared: dict[str, object],
+    file_hashes: dict[str, str],
+    provider: ProviderClient,
+    pack: Pack,
+    result: GenerationResult,
+    ledger: AttentionLedger,
+    timestamp: str,
+) -> str:
+    """Run the verifier, strip unsupported claims, open ledger items.
+
+    Rubric findings are collected on the result for the run manifest; they
+    never appear in the document body. Returns the cleaned body.
+    """
+    verification: SectionVerification = verify_section(
+        doc, body, feed, declared, file_hashes, provider, pack
+    )
+    result.verifier_call_count += 1
+
+    # Record the verifier result for the run manifest (Phase 12).
+    section, supported, unsupported, findings = to_manifest_result(verification)
+    result.verifier_results.append(
+        VerifierResult(
+            section=section,
+            supported_claims=supported,
+            unsupported_claims=unsupported,
+            findings=findings,
+        )
+    )
+
+    unsupported_claims = verification.unsupported_claims
+    if unsupported_claims:
+        body = remove_unsupported_claims(body, [c.claim for c in unsupported_claims])
+        for claim in unsupported_claims:
+            resolving = claim.resolving_input or "unknown input"
+            detail = claim.claim or "unsupported claim"
+            ledger.open_item(
+                section=doc,
+                detail=detail,
+                resolving_input=resolving,
+                timestamp=timestamp,
+            )
+            result.attention_items.append(
+                AttentionItem(
+                    item_id=stable_item_id(doc, resolving),
+                    action="open",
+                    detail=f"{doc}: {detail}",
+                )
+            )
+    else:
+        # All claims supported: close any previously open items for this section.
+        closed = ledger.close_section(doc, timestamp)
+        for _ in range(closed):
+            result.attention_items.append(AttentionItem(item_id="", action="close", detail=doc))
+    return body
+
+
+def _load_ledger(governance_dir: Path) -> AttentionLedger:
+    """Read the existing ATTENTION.md, or return an empty ledger."""
+    path = governance_dir / LEDGER_FILENAME
+    if not path.is_file():
+        return AttentionLedger()
+    return AttentionLedger.from_markdown(path.read_text(encoding="utf-8"))
+
+
+def _detect_generation_gaps(
+    profile: AgentProfile,
+    context: ContextManifest,
+    ledger: AttentionLedger,
+    timestamp: str,
+    result: GenerationResult,
+) -> None:
+    """Route generation-time gaps to the ledger.
+
+    The spec's example: the scanner finds data categories in code but the
+    context manifest declares none. Each gap opens an attention item naming
+    the init/scan input that would resolve it.
+    """
+    scan_categories = {
+        c for c in profile.governance.data_categories.value if c != DataCategory.NONE
+    }
+    context_categories = {c for c in context.data_categories if c != DataCategory.NONE}
+    if scan_categories and not context_categories:
+        resolving = "context.data_categories"
+        detail = (
+            f"scan found data categories {[c.value for c in scan_categories]} "
+            f"but context declares none"
+        )
+        ledger.open_item(
+            section="data-protection.md",
+            detail=detail,
+            resolving_input=resolving,
+            timestamp=timestamp,
+        )
+        result.attention_items.append(
+            AttentionItem(
+                item_id=stable_item_id("data-protection.md", resolving),
+                action="open",
+                detail=detail,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

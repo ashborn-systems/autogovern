@@ -18,6 +18,7 @@ from autogovern.generate.frontmatter import (
     render_document,
 )
 from autogovern.generate.inputs import compute_section_hash, extract_input
+from autogovern.generate.ledger import AttentionEntry, AttentionLedger, stable_item_id
 from autogovern.generate.lockfile import read_lockfile, write_lockfile
 from autogovern.generate.prompts import STYLE_PREAMBLE, build_section_messages
 from autogovern.generate.writer import write_if_changed
@@ -27,6 +28,8 @@ __all__ = [
     "GOVERNANCE_DIR",
     "LLM_DOCS",
     "STYLE_PREAMBLE",
+    "AttentionEntry",
+    "AttentionLedger",
     "GenerationResult",
     "build_frontmatter",
     "build_section_messages",
@@ -36,6 +39,7 @@ __all__ = [
     "parse_frontmatter",
     "read_lockfile",
     "render_document",
+    "stable_item_id",
     "write_if_changed",
     "write_lockfile",
 ]
