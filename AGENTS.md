@@ -58,6 +58,14 @@ Pre-commit: `uv run pre-commit run --all-files`
 8. **The framework pack is data, never code.** The generation engine treats
    `src/autogovern/frameworks/` as data. Do not import framework content as
    Python modules — read and parse it at runtime.
+9. **The tool is model-agnostic; do not anchor on one provider.** The spec
+   mandates provider neutrality (no default model, no bundled provider list).
+   Apply that to code and examples alike: scanner logic must treat every
+   OpenAI-compatible provider even-handedly, and tests/fixtures must rotate
+   across a realistic mix of open and closed-source providers rather than
+   defaulting to Anthropic/Claude. `CLAUDE.md`/`.claude/` appear in discovery
+   globs because the A2A spec lists them as agent-instruction files, not as
+   an endorsement; they sit alongside `AGENTS.md` and `agent.md`.
 
 ## Code conventions
 

@@ -99,3 +99,29 @@ One line per phase: date, phase number, validation result. Detailed completion n
 
   Validation: ruff check clean, ruff format clean, mypy strict (19 source files, no issues), pytest 113 passed (5 CLI + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 22 secrets). The secrets-discipline grep now parametrises over all six new ingest modules, confirming none persists the API key. No live LLM call in any test.
 
+- 2026-07-18 — Phase 5 (init: config and context only) — PASS: `pytest tests/test_init.py` green (20 tests: --defaults writes valid config+context round-tripping through Phase 1/2 models, --from invalid lists all five invalid fields and exits 1, re-run prompts before overwrite with y/n auto-answered, --force bypasses prompt, provider env required in non-interactive mode, key value never persisted); `make check-all` green (ruff + mypy + 133 tests).
+
+  **Phase 5 completion notes:**
+
+  Built `src/autogovern/context/wizard.py`, `src/autogovern/context/__init__.py`, `src/autogovern/hooks/__init__.py` (Phase 10 stubs), and `tests/test_init.py`. Rewired the `init` command in `cli.py` from a stub to a real wizard.
+
+  The wizard is a deep module: pure helpers (`default_context`, `provider_from_env`, `load_context_from_file`, `format_context_errors`, `build_config`) plus a single `write_init` orchestrator that takes a `confirm` callable so all interactive IO stays in the CLI shell. Writes are atomic (temp-file rename) so a failure midway leaves existing files intact.
+
+  Three input modes, mapped to the spec's `--defaults` / `--from <file>` / interactive:
+  - **`--defaults`** (non-interactive CI): context from `default_context()` (conservative starting values), provider from env vars `AUTOGOVERN_API_BASE` / `AUTOGOVERN_MODEL` / `AUTOGOVERN_API_KEY_ENV` (optional `AUTOGOVERN_TEMPERATURE`, default 0). Refuses to finish without the three required env vars, naming them in the error.
+  - **`--from <file>`**: loads and validates a context manifest YAML against `ContextManifest`. On validation failure, raises `ContextImportError` carrying one human-readable line per invalid field, so the CLI lists every problem in one run instead of failing on the first. Provider still comes from env (non-interactive).
+  - **Interactive** (neither flag): prompts field-by-field for context and for the three provider settings, each with a safe default derived from `default_context()`.
+
+  Provider env vars are read at call time via `os.environ.get` only; the key *value* is never touched. A dedicated test asserts the key value never appears in either written file, only the env-var *name* (`OPENROUTER_API_KEY`) appears in `config.yaml`. The secrets-discipline grep now scans `context/wizard.py` and `hooks/__init__.py` automatically (it rglobs `src/`), confirming neither persists the key.
+
+  Hook and CI installation are explicitly Phase 10 scope, so `init` calls stub functions `install_pre_commit_hook` and `install_ci_config` in `hooks/__init__.py` that install nothing and return "not implemented (Phase 10)" status messages. `--no-hooks` suppresses the hook call; `--local-enforce` is accepted and threaded through to the stub. The next-steps banner points at `scan` then `generate`.
+
+  Overwrite handling: if `config.yaml` or `context.yaml` already exists and `--force` is not set, the CLI asks once via `typer.confirm` whether to overwrite. Declining returns a `wrote_files=False` result with no writes. `--force` bypasses the prompt for CI idempotency.
+
+  Design decisions:
+  - Chose env vars (not a `.env` file, not interactive-only) for the non-interactive provider path so `init --defaults` works in CI without prompts while still refusing to run generation without real provider settings, per the spec's "no default model" rule.
+  - `load_context_from_file` validates the whole manifest in one pydantic call and surfaces every field error, rather than re-validating per field. The invalid fixture has exactly five errors (jurisdictions, deployment_context, autonomy_level, data_categories, risk_appetite); the test asserts each field name appears in the CLI output.
+  - `write_init` accepts a `confirm` callable rather than calling `typer.confirm` directly, keeping the wizard testable without the Typer runner and keeping the pure core free of CLI imports.
+  - The written `config.yaml` round-trips through the Phase 2 `load_config`, and the written `context.yaml` round-trips through `ContextManifest.model_validate`, proving the Phase 5 output is consumable by the phases that follow.
+
+  Validation: ruff check clean, ruff format clean, mypy strict (20 source files, no issues), pytest 133 passed (5 CLI + 20 init + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 23 secrets). No live LLM call in any test.
