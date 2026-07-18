@@ -145,20 +145,23 @@ Global rules for the whole build:
 - Edit the fixture's model config, regenerate: only the sections the graph names are re-rendered (assert by LLM call count and untouched file mtimes)
 - Style check: generated prompts contain the banned-constructions instruction block (snapshot test)
 
-## Phase 8 - verifier and attention ledger
+## Phase 8 - attention ledger and vanilla mode (reworked)
+
+**Rework note:** The original Phase 8 built a verifier pass (second LLM that audited the first one's output, stripped unsupported claims, and queued human review work). This was the wrong design: the docs are generated from the scan and match reality by construction. A self-audit that routes its fallout to humans is silly for a simple verification task. The rework removes the verifier entirely and adds vanilla mode (progressive enhancement: `generate` works without `init`).
 
 **Build**
 
-- Verifier pass: per regenerated section, claims checked against declared inputs and provenance; rubric findings from the pack's verifier rubric (in-scope sections only); structured JSON result
-- Unsupported claims removed from the section; gap written to `ATTENTION.md` with the missing init/scan input named
-- Generation-time gaps (required input absent) also route to the ledger
-- Ledger lifecycle: items carry stable ids; resolved items close on the next generate
+- `ATTENTION.md` rewritten as an informational note: notes whether docs are specific (context manifest loaded) or generic (vanilla mode). Points to `init` when generic. No open/close items, no verifier-driven gaps
+n- Vanilla mode: `generate` works without `.autogovern/config.yaml` (provider from `AUTOGOVERN_*` env vars) and without `.autogovern/context.yaml` (conservative defaults). `scan` likewise accepts env-var config. The tool never refuses to run because context is missing
+n- `config_loader.py` gains `load_config_or_env()` and `load_context_or_default()`; `provider_from_env()` moved here from `context/wizard.py`
+- `verify/` package emptied (reserved for future quality-feedback features)
 
 **Validate**
 
-- Mocked verifier returning one unsupported claim: claim absent from the final document, one open item in `ATTENTION.md` naming the resolving input (acceptance criterion 6, first half)
-- Mocked verifier returning all-supported: ledger untouched
-- Rubric findings appear in the run manifest, not in the documents
+- `generate` with no `.autogovern/` directory, env vars set, produces the full document set with generic context. `ATTENTION.md` notes vanilla mode and points to `init`
+- `generate` with a context manifest produces the same docs but specific. `ATTENTION.md` says "fully specified"
+- Vanilla mode is idempotent (second run produces zero diff)
+- No verifier LLM calls in any test (acceptance criterion 6, reworded: vanilla mode works, enhanced mode works, no human review queue)
 
 ## Phase 9 - material change detection
 
@@ -181,7 +184,7 @@ Global rules for the whole build:
 
 **Build**
 
-- `check`: the five-step sequence from the spec; exit 0 current, exit 1 material-stale with score, stale section list, and remediation command; `--strict` also fails on open attention items and advisory scores; `--fix` regenerates stale sections plus lockfile in place
+- `check`: the five-step sequence from the spec; exit 0 current, exit 1 material-stale with score, stale section list, and remediation command; `--strict` also fails on advisory scores; `--fix` regenerates stale sections plus lockfile in place
 - `diff`: dry-run report of sections that would change and why
 - `explain <doc>`: plain-language provenance and verification status per section
 - Pre-commit hook (heuristic only, never blocks, no LLM) and `hook install`; init now installs it (`--no-hooks` opt-out)
@@ -192,7 +195,7 @@ Global rules for the whole build:
 **Validate**
 
 - Full acceptance criterion 2 as an integration test: edit tool definition → `check` exits 1 with score and stale sections → `check --fix` regenerates → `check` exits 0
-- `check --strict` exits 1 while the Phase 8 attention item is open, 0 once resolved (criterion 6, second half)
+- `check --strict` exits 1 on advisory-band scores (criterion 6, reworded for vanilla mode)
 - Pre-commit hook on `fixture-basic` completes in under 500 ms and exits 0 for both impact outcomes (criterion 5)
 - CI writer golden tests: generated workflow files for all three forges match checked-in goldens; remote-URL detection test per forge
 - `--json` on check, scan, diff, and explain emits parseable JSON with a stable top-level schema
@@ -215,7 +218,7 @@ Global rules for the whole build:
 
 **Build**
 
-- Run manifest written to `.autogovern/runs/<timestamp>.json` on every scan, generate, check, and diff: command, tool version, config snapshot minus secrets, input hashes, sections regenerated and why, model id, token counts, scores and reasoning, verifier results, attention items opened and closed
+- Run manifest written to `.autogovern/runs/<timestamp>.json` on every scan, generate, check, and diff: command, tool version, config snapshot minus secrets, input hashes, sections regenerated and why, model id, token counts, scores and reasoning
 - `explain` upgraded to read manifests for its verification-status output
 
 **Validate**

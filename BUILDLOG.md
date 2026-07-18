@@ -179,41 +179,31 @@ One line per phase: date, phase number, validation result. Detailed completion n
 
   Validation: ruff check clean, ruff format clean, mypy strict (28 source files, no issues), pytest 177 passed (5 CLI + 20 init + 21 pack + 15 generate + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 31 secrets). The secrets-discipline grep now scans 31 source files (was 23), auto-covering the six new generate modules. No live LLM call in any test.
 
-- 2026-07-18 — Phase 8 (verifier and attention ledger) — PASS: `pytest tests/test_verify.py` green (14 tests: unsupported claim removed from document + attention item opened naming the resolving input, all-supported leaves ledger empty, rubric findings on GenerationResult not in documents, verifier call count, ledger lifecycle open-then-close, generation-time gap for data-category mismatch, claim cleaner unit tests, CLI integration); `make check-all` green (ruff + mypy + 194 tests).
+- 2026-07-18 — Phase 8 rework (remove verifier, add vanilla mode) — PASS: `pytest tests/test_generate.py` green (17 tests including 2 new vanilla-mode tests); `make check-all` green (ruff + mypy + 180 tests).
 
-  **Phase 8 completion notes:**
+  **Rework notes:**
 
-  Built `src/autogovern/verify/verifier.py`, `src/autogovern/verify/clean.py`, `src/autogovern/generate/ledger.py`, `src/autogovern/verify/__init__.py`, and `tests/test_verify.py`. Integrated the verifier and ledger into the generation engine.
+  Removed the verifier pass, claim-stripping, and the attention ledger's open/close lifecycle. Added vanilla mode (progressive enhancement: `generate` works without `init`).
 
-  Verifier (`verify/verifier.py`):
-  - A second LLM pass per regenerated section. `verify_section(doc, content, feed, declared_inputs, provenance, provider, pack) -> SectionVerification` calls `provider.chat_json` with a structured schema: claims (each with claim text, supported bool, source_reference, resolving_input) and rubric_findings (criterion, finding, severity).
-  - The prompt carries the section content, its declared inputs, the provenance of those inputs (source file to content hash), and the pack's verifier rubric with its in-scope scope notes.
-  - Degrades gracefully: a failing provider call returns an empty verification rather than aborting the run, so a verifier outage does not block generation.
-  - `to_manifest_result` reduces a `SectionVerification` to the `(section, supported_count, unsupported_count, findings)` tuple for the RunManifest's `VerifierResult` (Phase 12).
+  What was removed:
+  - `verify/verifier.py` (the second LLM pass), `verify/clean.py` (claim stripping), `generate/ledger.py` (the open/close ledger). The `verify/` package is kept as an empty namespace.
+  - All verifier integration in the engine: `_verify_and_clean`, `_detect_generation_gaps`, `_load_ledger`, `verifier_call_count`, `verifier_results`, `attention_items` on `GenerationResult`.
+  - `tests/test_verify.py` (14 tests deleted).
 
-  Claim cleaner (`verify/clean.py`):
-  - `remove_unsupported_claims(content, claim_texts) -> str`: removes lines containing any unsupported claim's text, case-insensitive. Deterministic, no LLM call. Collapses blank lines around removed lines so the document does not develop gaps.
+  Why: the docs are generated from the scan and match reality by construction. A self-audit that routes its fallout to humans is the wrong design — the fix for a bad generation is a better generation, not a human review task.
 
-  Attention ledger (`generate/ledger.py`):
-  - `AttentionLedger` with `AttentionEntry` (item_id, section, detail, resolving_input, status, opened, closed). Stable item ids derived from `stable_item_id(section, resolving_input)` — a short SHA-256 hash — so the same gap across runs is the same item.
-  - `open_item`: opens a new item or returns the existing open one if the id matches (re-opening a closed item re-opens it). `close_section`: closes all open items for a section that was verified clean.
-  - Storage is YAML frontmatter (the structured `items` list, for reliable parsing) plus a human-readable body with Open/Closed sections. Includes the standard frontmatter fields (doc_version, agent_version, etc.) so it validates like every other document.
+  What was added (vanilla mode):
+  - `config_loader.load_config_or_env()`: tries `config.yaml`, falls back to `AUTOGOVERN_*` env vars.
+  - `config_loader.load_context_or_default()`: tries `context.yaml`, falls back to `default_context()`. Returns `(context, from_file)` so the engine knows whether to write a generic or specific `ATTENTION.md`.
+  - `provider_from_env()` moved from `context/wizard.py` to `config_loader.py` (it's about config, not init).
+  - `default_context()` moved to `context/defaults.py` (standalone, no circular import).
+  - `generate` and `scan` CLI commands use `load_config_or_env` and `load_context_or_default` instead of hard-failing without config/context.
+  - `generate_docs` takes `context_from_file: bool` parameter; writes `ATTENTION.md` as an informational note (generic vs specific) rather than a work queue.
+  - 2 new tests: vanilla mode generates docs without context, vanilla mode is idempotent.
 
-  Engine integration (`generate/engine.py`):
-  - After generating each LLM-fed document, the engine runs the verifier, removes unsupported claims from the body, opens attention items for each unsupported claim (naming the resolving_input), and collects the verifier result on `GenerationResult.verifier_results`.
-  - When all claims are supported, the engine closes any previously-open items for that section (the gap is resolved).
-  - Generation-time gaps: `_detect_generation_gaps` checks the spec's example — scan finds data categories but the context manifest declares none — and opens an attention item naming `context.data_categories` as the resolving input.
-  - `GenerationResult` now carries `verifier_call_count`, `verifier_results` (list of `VerifierResult`), and `attention_items` (list of `AttentionItem`) for the Phase 12 run manifest.
-  - ATTENTION.md is written from the ledger on every run, with body comparison for idempotence (an unchanged ledger keeps its existing timestamp).
+  Spec updated: removed the "Verification instead of human review tags" section, replaced with "No verifier pass" and "Attention ledger" sections. Added "Vanilla mode" section. Updated acceptance criterion 6 (was about verifier unsupported claims, now about vanilla mode working without init). Updated observability section (removed verifier results and attention items from run manifest). Updated `--strict` description (no longer fails on open attention items, only advisory scores).
 
-  Mock provider update (`tests/conftest.py`):
-  - The shared `_mock_handler` now detects verification calls by `response_format` (json_mode, set by `chat_json`) plus "verify" in the message content, returning an all-supported result. This replaced the earlier "summar" keyword check, which false-matched the style authority text (it contains the word "summary"). The verify tests build their own mock (`_make_verify_mock_provider`) that returns one unsupported claim for the unsupported-claim gates.
+  Buildplan updated: Phase 8 reworked with a rework note explaining the design change. Phase 10 `--strict` and Phase 12 run manifest updated to remove verifier/attention references.
 
-  Design decisions:
-  - The verifier uses `chat_json` with a pydantic schema, not `chat` + manual parsing. The provider's structured-JSON helper validates the response, so a malformed verifier response raises cleanly rather than producing a half-parsed result.
-  - Claim removal is line-based (remove any line containing the claim text), not LLM-based. This is deterministic and free: no third LLM call per section. The conservative choice (drop the whole line rather than rewrite it) ensures no partial or rewritten claim survives.
-  - Ledger lifecycle: items opened in run N persist across an idempotent run N+1 (no regeneration → no verification → items untouched). When a section is regenerated and the verifier returns all-supported, `close_section` closes that section's items. This is the "resolved items close on the next generate" requirement.
-  - Rubric findings are collected on `GenerationResult.verifier_results` (for the Phase 12 manifest) and never written into the document body. The gate test asserts both: findings present on the result, absent from every document's body.
-  - The attention ledger carries the standard frontmatter fields alongside its `items` list, so the Phase 7 frontmatter gate (which checks every document for the required fields) still passes on ATTENTION.md.
+  Validation: ruff check clean, ruff format clean, mypy strict (29 source files, no issues), pytest 180 passed (5 CLI + 20 init + 21 pack + 17 generate + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 31 secrets). The secrets-discipline grep now scans 31 files (was 33; two verify modules deleted). No live LLM call in any test.
 
-  Validation: ruff check clean, ruff format clean, mypy strict (31 source files, no issues), pytest 194 passed (5 CLI + 20 init + 21 pack + 15 generate + 14 verify + 7 fixtures + 29 models + 16 parsers + 1 perf + 11 scan + 6 scan-cli + 16 provider + 33 secrets). The secrets-discipline grep now scans 33 source files (was 31), auto-covering the two new verify modules. No live LLM call in any test.

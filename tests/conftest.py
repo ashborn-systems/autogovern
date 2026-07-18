@@ -24,27 +24,8 @@ _MOCK_KEY_VALUE = "sk-test-not-a-real-key"
 
 
 def _mock_handler(request: httpx.Request) -> httpx.Response:
-    """Return canned responses for scan, generation, and verification calls.
-
-    Detection uses the ``response_format`` flag (set by ``chat_json``) plus
-    message content: verification prompts mention "verify". This keeps a
-    single mock serving all three LLM seams reliably, even when the style
-    authority text happens to contain words like "summary".
-    """
-    payload = json.loads(request.content)
-    messages = payload.get("messages", [])
-    combined = " ".join(m.get("content", "") for m in messages).lower()
-    is_json = payload.get("response_format") is not None
-
-    if is_json and "verify" in combined:
-        # All-supported: no claims, no findings. Verifier-specific tests
-        # build their own mocks for the unsupported-claim case.
-        content = json.dumps({"section": "", "claims": [], "rubric_findings": []})
-    else:
-        # Summarisation (chat_json, no "verify") and generation (chat) both
-        # get the canned FreeTextSummary-shaped content.
-        content = json.dumps({"data_categories": ["personal"]})
-
+    """Return a canned FreeTextSummary JSON for any chat request."""
+    content = json.dumps({"data_categories": ["personal"]})
     body = {"choices": [{"message": {"role": "assistant", "content": content}}]}
     return httpx.Response(200, content=json.dumps(body).encode())
 

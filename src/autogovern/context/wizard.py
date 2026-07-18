@@ -13,7 +13,6 @@ interactive IO lives in the CLI shell, not here.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,15 +20,12 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from autogovern.context.defaults import default_context
 from autogovern.hooks import install_ci_config, install_pre_commit_hook
 from autogovern.models import (
-    AutonomyLevel,
     Config,
     ContextManifest,
-    DataCategory,
-    DeploymentContext,
     ModelProviderConfig,
-    RiskAppetite,
 )
 
 CONFIG_DIR = Path(".autogovern")
@@ -38,15 +34,10 @@ CONTEXT_FILENAME = "context.yaml"
 CONFIG_FILE = CONFIG_DIR / CONFIG_FILENAME
 CONTEXT_FILE = CONFIG_DIR / CONTEXT_FILENAME
 
+
 # Environment variables for non-interactive provider configuration. The key
 # itself is never read here; only the *name* of the env var holding it is
 # captured into config.yaml.
-ENV_API_BASE = "AUTOGOVERN_API_BASE"
-ENV_MODEL = "AUTOGOVERN_MODEL"
-ENV_API_KEY_ENV = "AUTOGOVERN_API_KEY_ENV"
-ENV_TEMPERATURE = "AUTOGOVERN_TEMPERATURE"
-
-
 class InitError(Exception):
     """Base class for init failures."""
 
@@ -84,56 +75,6 @@ class InitResult:
 # ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
-
-
-def default_context() -> ContextManifest:
-    """A conservative default context for ``--defaults`` non-interactive init.
-
-    These are deliberately plain starting values; the wizard's premise is that
-    a thorough init plus scan leaves nothing for humans to fill in later, so
-    the interactive path prompts for every field. ``--defaults`` is the CI
-    escape hatch and must still produce a valid manifest.
-    """
-    return ContextManifest(
-        organisation="My Organisation",
-        sector="general",
-        jurisdictions=["UK"],
-        deployment_context=DeploymentContext.INTERNAL,
-        intended_users="internal developers",
-        autonomy_level=AutonomyLevel.HUMAN_IN_THE_LOOP,
-        oversight_model="human reviews agent outputs before acting on them",
-        data_categories=[DataCategory.NONE],
-        risk_appetite=RiskAppetite.CONSERVATIVE,
-        strategy="exploring agent-assisted development",
-        owner="engineering lead",
-        review_cadence="quarterly",
-    )
-
-
-def provider_from_env() -> ModelProviderConfig | None:
-    """Build a provider config from environment variables, or ``None``.
-
-    Returns ``None`` if any required variable is unset so the caller can
-    decide whether to fall back to interactive prompts or fail. The API key
-    value is never touched here; only the name of the variable holding it is
-    captured.
-    """
-    api_base = os.environ.get(ENV_API_BASE)
-    model = os.environ.get(ENV_MODEL)
-    api_key_env = os.environ.get(ENV_API_KEY_ENV)
-    if not (api_base and model and api_key_env):
-        return None
-    raw_temp = os.environ.get(ENV_TEMPERATURE, "0")
-    try:
-        temperature = float(raw_temp)
-    except ValueError:
-        temperature = 0.0
-    return ModelProviderConfig(
-        api_base=api_base,
-        model=model,
-        api_key_env=api_key_env,
-        temperature=temperature,
-    )
 
 
 def load_context_from_file(path: Path) -> ContextManifest:
@@ -259,10 +200,6 @@ __all__ = [
     "CONFIG_FILE",
     "CONTEXT_FILE",
     "ContextImportError",
-    "ENV_API_BASE",
-    "ENV_API_KEY_ENV",
-    "ENV_MODEL",
-    "ENV_TEMPERATURE",
     "InitError",
     "InitResult",
     "ProviderConfigError",
@@ -270,6 +207,5 @@ __all__ = [
     "default_context",
     "format_context_errors",
     "load_context_from_file",
-    "provider_from_env",
     "write_init",
 ]

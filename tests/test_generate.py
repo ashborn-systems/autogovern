@@ -72,7 +72,14 @@ def _scan_and_generate(
     provider = make_mock_provider(config)
     scan_result = scan_repo(repo, config, provider=provider, write_card=False)
     assert scan_result.profile is not None
-    result = generate_docs(repo, config, scan_result.profile, context, provider=provider)
+    result = generate_docs(
+        repo,
+        config,
+        scan_result.profile,
+        context,
+        provider=provider,
+        context_from_file=True,
+    )
     return scan_result.profile, result, provider
 
 
@@ -272,7 +279,7 @@ def test_style_preamble_contains_banned_constructions_block() -> None:
     """The exported STYLE_PREAMBLE carries every banned-construction rule.
 
     Snapshot test: editing the preamble deliberately requires updating this
-    assertion, which flags drift in the style authority the verifier enforces.
+    assertion, which flags drift in the style authority the generation prompts enforce.
     """
     for banned in (
         "em-dash",
@@ -433,7 +440,14 @@ def test_generate_failure_leaves_no_partial_files(
     scan_result = scan_repo(gen_repo, config, provider=make_mock_provider(config), write_card=False)
     assert scan_result.profile is not None
     with pytest.raises(ProviderError):
-        generate_docs(gen_repo, config, scan_result.profile, context, provider=provider)
+        generate_docs(
+            gen_repo,
+            config,
+            scan_result.profile,
+            context,
+            provider=provider,
+            context_from_file=True,
+        )
 
     # No .tmp files left behind.
     gov = gen_repo / GOV
@@ -441,6 +455,82 @@ def test_generate_failure_leaves_no_partial_files(
     # Existing files are unchanged (the failure aborted before any write).
     for name, content in snapshot.items():
         assert (gov / name).read_text() == content
+
+
+# ---------------------------------------------------------------------------
+# Vanilla mode (no context manifest)
+# ---------------------------------------------------------------------------
+
+
+def test_vanilla_mode_generates_docs_without_context(gen_repo: Path, config: Config) -> None:
+    """generate works without a context manifest; docs are generic."""
+    import os
+
+    os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
+    provider = make_mock_provider(config)
+    scan_result = scan_repo(gen_repo, config, provider=provider, write_card=False)
+    assert scan_result.profile is not None
+    context = default_context()  # vanilla: no context file loaded
+    result = generate_docs(
+        gen_repo,
+        config,
+        scan_result.profile,
+        context,
+        provider=provider,
+        context_from_file=False,
+    )
+    provider.close()
+
+    assert result.llm_call_count == 7
+    assert (gen_repo / GOV / "system-card.md").is_file()
+    assert (gen_repo / GOV / "ATTENTION.md").is_file()
+
+    att = (gen_repo / GOV / "ATTENTION.md").read_text()
+    assert "without a context manifest" in att
+    assert "autogovern init" in att
+
+    quickstart = (gen_repo / GOV / "QUICKSTART.md").read_text()
+    assert "without a context manifest" in quickstart
+
+
+def test_vanilla_mode_idempotent(gen_repo: Path, config: Config) -> None:
+    """Vanilla mode is idempotent: second run produces zero diff."""
+    import os
+
+    os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
+    provider = make_mock_provider(config)
+    scan_result = scan_repo(gen_repo, config, provider=provider, write_card=False)
+    assert scan_result.profile is not None
+    context = default_context()
+    generate_docs(
+        gen_repo,
+        config,
+        scan_result.profile,
+        context,
+        provider=provider,
+        context_from_file=False,
+    )
+    provider.close()
+
+    snapshot = _snapshot(gen_repo)
+
+    provider2 = make_mock_provider(config)
+    scan_result2 = scan_repo(gen_repo, config, provider=provider2, write_card=False)
+    result2 = generate_docs(
+        gen_repo,
+        config,
+        scan_result2.profile,
+        context,
+        provider=provider2,
+        context_from_file=False,
+    )
+    provider2.close()
+
+    assert result2.llm_call_count == 0
+    diffs = [
+        name for name, content in snapshot.items() if (gen_repo / GOV / name).read_text() != content
+    ]
+    assert diffs == [], f"idempotence broken: {diffs}"
 
 
 # ---------------------------------------------------------------------------

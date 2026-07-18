@@ -18,7 +18,7 @@ import yaml
 from typer.testing import CliRunner
 
 from autogovern.cli import app
-from autogovern.config_loader import load_config
+from autogovern.config_loader import load_config, provider_from_env
 from autogovern.context import (
     CONFIG_FILE,
     CONTEXT_FILE,
@@ -26,7 +26,6 @@ from autogovern.context import (
     default_context,
     format_context_errors,
     load_context_from_file,
-    provider_from_env,
     write_init,
 )
 from autogovern.models import Config, ContextManifest

@@ -16,9 +16,9 @@ from autogovern.config_loader import (
     ConfigInvalidError,
     ConfigNotFoundError,
     ContextInvalidError,
-    ContextNotFoundError,
-    load_config,
-    load_context,
+    load_config_or_env,
+    load_context_or_default,
+    provider_from_env,
 )
 from autogovern.context import (
     ContextImportError,
@@ -26,7 +26,6 @@ from autogovern.context import (
     build_config,
     default_context,
     load_context_from_file,
-    provider_from_env,
     write_init,
 )
 from autogovern.generate import generate_docs
@@ -200,7 +199,7 @@ def scan(
     config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
 ) -> None:
     """Build and print the AgentProfile (writes AgentCard if absent)."""
-    cfg = _load_config_or_exit(config)
+    cfg = _load_config_or_env_or_exit(config)
     provider = build_provider(cfg)
     try:
         result = scan_repo(path, cfg, provider=provider, write_card=not no_write_card)
@@ -220,15 +219,22 @@ def generate(
     config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
 ) -> None:
     """Full or incremental doc generation into governance/."""
-    cfg = _load_config_or_exit(config)
-    context = _load_context_or_exit()
+    cfg = _load_config_or_env_or_exit(config)
+    context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
     try:
         scan_result = scan_repo(path, cfg, provider=provider, write_card=False)
         if not scan_result.signals_found or scan_result.profile is None:
             typer.echo(f"No agent signals found in {path}. Nothing to generate.", err=True)
             raise typer.Exit(code=1)
-        result = generate_docs(path, cfg, scan_result.profile, context, provider=provider)
+        result = generate_docs(
+            path,
+            cfg,
+            scan_result.profile,
+            context,
+            provider=provider,
+            context_from_file=context_from_file,
+        )
     finally:
         provider.close()
 
@@ -238,6 +244,10 @@ def generate(
             typer.echo(f"  - {doc}")
         if result.skipped:
             typer.echo(f"({len(result.skipped)} unchanged, skipped)")
+        if not context_from_file:
+            typer.echo("")
+            typer.echo("Note: running without a context manifest. Docs are generic.")
+            typer.echo("Run `autogovern init` for specific governance docs.")
     else:
         typer.echo("generate: all documents up to date (nothing regenerated).")
 
@@ -273,10 +283,10 @@ def hook() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_config_or_exit(config: Path | None) -> Config:
-    """Load config, exiting non-zero with the init remedy on failure."""
+def _load_config_or_env_or_exit(config: Path | None) -> Config:
+    """Load config from disk or env vars, exiting non-zero if neither exists."""
     try:
-        return load_config(config)
+        return load_config_or_env(config)
     except ConfigNotFoundError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -285,13 +295,10 @@ def _load_config_or_exit(config: Path | None) -> Config:
         raise typer.Exit(code=1) from exc
 
 
-def _load_context_or_exit() -> ContextManifest:
-    """Load context, exiting non-zero with the init remedy on failure."""
+def _load_context_or_default_or_exit() -> tuple[ContextManifest, bool]:
+    """Load context from disk, or fall back to defaults (vanilla mode)."""
     try:
-        return load_context()
-    except ContextNotFoundError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+        return load_context_or_default()
     except ContextInvalidError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
