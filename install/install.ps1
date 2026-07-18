@@ -1,0 +1,24 @@
+# autogovern installer for Windows (PowerShell).
+# Usage: irm https://autogovern.dev/install.ps1 | iex
+$ErrorActionPreference = "Stop"
+
+# Install uv if absent.
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Host "Installing uv..."
+    irm https://astral.sh/uv/install.ps1 | iex
+    $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+}
+
+Write-Host "Installing auto-govern..."
+uv tool install auto-govern
+
+if (-not (Get-Command autogovern -ErrorAction SilentlyContinue)) {
+    Write-Host ""
+    Write-Host "autogovern is not on your PATH. Add this to your PowerShell profile:"
+    Write-Host "  `$env:Path = `"$env:USERPROFILE\.local\bin;`$env:Path`""
+    Write-Host ""
+}
+
+Write-Host ""
+Write-Host "autogovern installed successfully."
+Write-Host "Run 'autogovern init' to get started."

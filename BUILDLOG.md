@@ -243,3 +243,16 @@ One line per phase: date, phase number, validation result. Detailed completion n
 - 2026-07-18 — Phase 12 (run manifests and observability) — PASS: `pytest tests/test_manifests.py` green (9 tests: manifest written on generate and check, validates against RunManifest schema, no secret values, config snapshot strips key env, token counts null when not reported and present when reported, multiple manifests accumulate); `make check-all` green (ruff + mypy + 234 tests).
 
   Built `observability/manifest.py` (build_manifest, write_manifest, read_manifests), wired manifest writing into generate and check CLI commands.
+
+- 2026-07-18 — Phase 13 (end-to-end, packaging, release readiness) — PASS: `pytest tests/test_acceptance.py` green (8 tests: all seven acceptance criteria + E2E full journey); `make build` produces wheel; `pip install dist/*.whl` in fresh venv then `autogovern --help` works; `make check-all` green (ruff + mypy + 242 tests).
+
+  Built: `tests/test_acceptance.py` (7 acceptance criteria + E2E), `README.md` (install, quickstart, config reference, CI setup, headless usage), `action/action.yml` (GitHub Action), `.pre-commit-hooks.yaml`, `install/install.sh` + `install/install.ps1` (uv-first, user-local, idempotent), `LICENSE` (Apache-2.0), `CHANGELOG.md`, `Makefile build` target.
+
+  All seven acceptance criteria pass:
+  1. init + generate produces the full document set, AgentCard, frontmatter, manifest
+  2. check exits 1 on material change, --fix regenerates, check exits 0
+  3. unwatched file edit → check exits 0, no LLM
+  4. two consecutive generates produce zero diff
+  5. pre-commit hook < 500ms, never blocks
+  6. vanilla mode works without init, enhanced mode with init
+  7. GitHub Action exists and wraps check/generate

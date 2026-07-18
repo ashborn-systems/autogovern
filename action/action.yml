@@ -1,0 +1,28 @@
+name: autogovern
+description: Generate and maintain governance documentation for AI agents
+inputs:
+  command:
+    description: The autogovern command to run (check or generate)
+    required: false
+    default: check
+  fix:
+    description: Whether to run with --fix (regenerate stale docs)
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Install auto-govern
+      shell: bash
+      run: pip install auto-govern
+    - name: Run autogovern
+      shell: bash
+      env:
+        AUTOGOVERN_API_KEY_ENV: OPENROUTER_API_KEY
+        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      run: |
+        if [ "${{ inputs.fix }}" = "true" ]; then
+          autogovern ${{ inputs.command }} --fix
+        else
+          autogovern ${{ inputs.command }}
+        fi
