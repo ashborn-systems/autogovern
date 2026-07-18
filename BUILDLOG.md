@@ -235,3 +235,7 @@ One line per phase: date, phase number, validation result. Detailed completion n
 - 2026-07-18 — Phase 10 (check, fix, diff, explain, hooks, CI writers) — PASS: `pytest tests/test_check.py` green (18 tests: acceptance criterion 2 check→fix→check cycle, --strict on advisory, --json on check/diff/explain, pre-commit hook installed+fast+executable, hook CLI command, --local-enforce pre-push, CI writers for GitHub/Forgejo/Bitbucket/generic with remote detection, --model override); `make check-all` green (ruff + mypy + 216 tests).
 
   Built `check.py` (five-step check sequence with CheckResult), `explain.py` (frontmatter provenance rendering), real `hooks/__init__.py` (pre-commit hook + forge-aware CI writers for GitHub/Forgejo/Bitbucket/generic), wired all CLI commands + global flags (--json, --config, --model, --strict).
+
+- 2026-07-18 — Phase 11 (headless input and library surface) — PASS: `pytest tests/test_api.py` green (7 tests: --profile generate with no repo, library scan/check/generate returning typed results, headless check with profile, check --profile parity with repo scan, API signature stability, public exports); `make check-all` green (ruff + mypy + 224 tests).
+
+  Built `api.py` (public library API: scan, generate_docs, check, load_profile with headless profile support), updated `__init__.py` exports, added `--profile` flag to generate/check/diff CLI commands.

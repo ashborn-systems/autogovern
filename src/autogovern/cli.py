@@ -12,7 +12,8 @@ from pathlib import Path
 
 import typer
 
-from autogovern.check import run_check
+from autogovern.api import check as check_lib
+from autogovern.api import load_profile
 from autogovern.config_loader import (
     ConfigInvalidError,
     ConfigNotFoundError,
@@ -223,20 +224,27 @@ def generate(
     config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
     model: str | None = typer.Option(None, "--model", help="Override the configured model."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    profile_path: Path | None = typer.Option(
+        None, "--profile", help="AgentProfile JSON file (headless mode)."
+    ),
 ) -> None:
     """Full or incremental doc generation into governance/."""
     cfg = _load_config_or_env_or_exit(config, model)
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
     try:
-        scan_result = scan_repo(path, cfg, provider=provider, write_card=False)
-        if not scan_result.signals_found or scan_result.profile is None:
-            typer.echo(f"No agent signals found in {path}. Nothing to generate.", err=True)
-            raise typer.Exit(code=1)
+        if profile_path is not None:
+            profile = load_profile(profile_path)
+        else:
+            scan_result = scan_repo(path, cfg, provider=provider, write_card=False)
+            if not scan_result.signals_found or scan_result.profile is None:
+                typer.echo(f"No agent signals found in {path}. Nothing to generate.", err=True)
+                raise typer.Exit(code=1)
+            profile = scan_result.profile
         result = generate_docs(
             path,
             cfg,
-            scan_result.profile,
+            profile,
             context,
             provider=provider,
             context_from_file=context_from_file,
@@ -278,13 +286,17 @@ def diff(
     config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
     model: str | None = typer.Option(None, "--model", help="Override the configured model."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    profile_path: Path | None = typer.Option(
+        None, "--profile", help="AgentProfile JSON (headless mode)."
+    ),
 ) -> None:
     """Show which sections would change and why, without writing."""
     cfg = _load_config_or_env_or_exit(config, model)
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
     try:
-        result = run_check(
+        profile = load_profile(profile_path) if profile_path is not None else None
+        result = check_lib(
             path,
             cfg,
             context,
@@ -292,6 +304,7 @@ def diff(
             strict=False,
             fix=False,
             context_from_file=context_from_file,
+            profile=profile,
         )
     finally:
         provider.close()
@@ -319,13 +332,17 @@ def check(
     strict: bool = typer.Option(False, "--strict", help="Treat advisory scores as failures."),
     fix: bool = typer.Option(False, "--fix", help="Regenerate stale sections in place."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    profile_path: Path | None = typer.Option(
+        None, "--profile", help="AgentProfile JSON (headless mode)."
+    ),
 ) -> None:
     """CI gate: report stale docs; --fix regenerates in place."""
     cfg = _load_config_or_env_or_exit(config, model)
     context, context_from_file = _load_context_or_default_or_exit()
     provider = build_provider(cfg)
     try:
-        result = run_check(
+        profile = load_profile(profile_path) if profile_path is not None else None
+        result = check_lib(
             path,
             cfg,
             context,
@@ -333,6 +350,7 @@ def check(
             strict=strict,
             fix=fix,
             context_from_file=context_from_file,
+            profile=profile,
         )
     finally:
         provider.close()
