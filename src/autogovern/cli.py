@@ -35,6 +35,7 @@ from autogovern.generate import generate_docs
 from autogovern.hooks import install_pre_commit_hook
 from autogovern.ingest import ScanResult, scan_repo
 from autogovern.models import Config, ContextManifest, ModelProviderConfig
+from autogovern.observability import build_manifest, write_manifest
 from autogovern.provider import build_provider
 
 app = typer.Typer(
@@ -252,6 +253,8 @@ def generate(
     finally:
         provider.close()
 
+    _write_generate_manifest(path, cfg, result)
+
     if json_output:
         import json as _json
 
@@ -354,6 +357,8 @@ def check(
         )
     finally:
         provider.close()
+
+    _write_check_manifest(path, cfg, result)
 
     if json_output:
         import json as _json
@@ -495,6 +500,42 @@ def _print_scan_human(result: ScanResult) -> None:
 def _join_or_none(items: list[str]) -> str:
     """Join a list for display, or 'none' when empty."""
     return ", ".join(items) if items else "none"
+
+
+def _write_generate_manifest(root: Path, config: Config, result: object) -> None:
+    """Write a run manifest for a generate command."""
+    sections = [
+        {"section": doc, "changed_input": "input hash changed"}
+        for doc in getattr(result, "regenerated", [])
+    ]
+    manifest = build_manifest(
+        command="generate",
+        config=config,
+        sections_regenerated=sections,
+        model_id=config.model_provider.model,
+        prompt_template_versions={"generation": "generation-1.0.0"},
+    )
+    write_manifest(root, manifest)
+
+
+def _write_check_manifest(root: Path, config: Config, result: object) -> None:
+    """Write a run manifest for a check command."""
+    detection = getattr(result, "detection", None)
+    materiality = None
+    if detection is not None and getattr(detection, "materiality", None) is not None:
+        mat = detection.materiality
+        materiality = {
+            "score": mat.score,
+            "band": mat.band,
+            "criteria": [c.model_dump() for c in mat.criteria],
+        }
+    manifest = build_manifest(
+        command="check",
+        config=config,
+        model_id=config.model_provider.model,
+        materiality=materiality,
+    )
+    write_manifest(root, manifest)
 
 
 if __name__ == "__main__":

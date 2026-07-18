@@ -239,3 +239,7 @@ One line per phase: date, phase number, validation result. Detailed completion n
 - 2026-07-18 — Phase 11 (headless input and library surface) — PASS: `pytest tests/test_api.py` green (7 tests: --profile generate with no repo, library scan/check/generate returning typed results, headless check with profile, check --profile parity with repo scan, API signature stability, public exports); `make check-all` green (ruff + mypy + 224 tests).
 
   Built `api.py` (public library API: scan, generate_docs, check, load_profile with headless profile support), updated `__init__.py` exports, added `--profile` flag to generate/check/diff CLI commands.
+
+- 2026-07-18 — Phase 12 (run manifests and observability) — PASS: `pytest tests/test_manifests.py` green (9 tests: manifest written on generate and check, validates against RunManifest schema, no secret values, config snapshot strips key env, token counts null when not reported and present when reported, multiple manifests accumulate); `make check-all` green (ruff + mypy + 234 tests).
+
+  Built `observability/manifest.py` (build_manifest, write_manifest, read_manifests), wired manifest writing into generate and check CLI commands.
