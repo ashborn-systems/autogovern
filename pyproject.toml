@@ -3,7 +3,8 @@ name = "autogovern"
 version = "0.1.0"
 description = "Generate and maintain governance documentation for AI agents."
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
     { name = "Henry", email = "h.stokes185@gmail.com" }
 ]
