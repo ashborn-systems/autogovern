@@ -246,6 +246,7 @@ class Config(BaseModel):
             "pyproject.toml",
             "package.json",
             "requirements.txt",
+            "prompts/**",
         ]
     )
     thresholds: Thresholds = Field(default_factory=Thresholds)
