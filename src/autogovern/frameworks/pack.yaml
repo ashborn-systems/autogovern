@@ -62,8 +62,8 @@ document_feeds:
       - profile.description
       - profile.version
       - profile.governance.model_configuration
-      - profile.governance.capabilities
-      - profile.governance.skills
+      - profile.capabilities
+      - profile.skills
     context_inputs:
       - context.autonomy_level
       - context.intended_users
@@ -76,7 +76,7 @@ document_feeds:
     profile_inputs:
       - profile.governance.permissions_surface
       - profile.governance.data_categories
-      - profile.governance.capabilities
+      - profile.capabilities
     context_inputs:
       - context.risk_appetite
       - context.jurisdictions
@@ -109,8 +109,8 @@ document_feeds:
       - agentic-governance/governance-frameworks.md#5                # governance metrics
       - agentic-governance/governance-frameworks.md#6                # sandbox environments
     profile_inputs:
-      - profile.governance.capabilities
-      - profile.governance.skills
+      - profile.capabilities
+      - profile.skills
       - profile.governance.permissions_surface
     context_inputs:
       - context.review_cadence

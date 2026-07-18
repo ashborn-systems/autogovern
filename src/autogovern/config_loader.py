@@ -12,9 +12,10 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from autogovern.models import Config
+from autogovern.models import Config, ContextManifest
 
 CONFIG_PATH = Path(".autogovern/config.yaml")
+CONTEXT_PATH = Path(".autogovern/context.yaml")
 
 
 class ConfigNotFoundError(FileNotFoundError):
@@ -23,6 +24,47 @@ class ConfigNotFoundError(FileNotFoundError):
 
 class ConfigInvalidError(ValueError):
     """Raised when the config file fails validation."""
+
+
+class ContextNotFoundError(FileNotFoundError):
+    """Raised when ``.autogovern/context.yaml`` is missing."""
+
+
+class ContextInvalidError(ValueError):
+    """Raised when the context file fails validation."""
+
+
+def load_context(path: Path | None = None) -> ContextManifest:
+    """Load and validate the organisational context manifest.
+
+    Args:
+        path: Optional explicit path. Defaults to ``.autogovern/context.yaml``
+            in the current working directory.
+
+    Returns:
+        A validated :class:`ContextManifest`.
+
+    Raises:
+        ContextNotFoundError: The context file does not exist.
+        ContextInvalidError: The file is not valid YAML or fails validation.
+    """
+    context_path = path or CONTEXT_PATH
+    if not context_path.is_file():
+        raise ContextNotFoundError(
+            f"Context file not found: {context_path}. Run `autogovern init` to create it."
+        )
+    try:
+        raw = yaml.safe_load(context_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ContextInvalidError(f"Context file {context_path} is not valid YAML: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ContextInvalidError(
+            f"Context file {context_path} must contain a YAML mapping at the top level."
+        )
+    try:
+        return ContextManifest.model_validate(raw)
+    except ValidationError as exc:
+        raise ContextInvalidError(f"Context file {context_path} failed validation:\n{exc}") from exc
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -64,7 +106,11 @@ def load_config(path: Path | None = None) -> Config:
 
 __all__ = [
     "CONFIG_PATH",
+    "CONTEXT_PATH",
     "ConfigInvalidError",
     "ConfigNotFoundError",
+    "ContextInvalidError",
+    "ContextNotFoundError",
     "load_config",
+    "load_context",
 ]

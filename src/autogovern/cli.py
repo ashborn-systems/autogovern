@@ -12,7 +12,14 @@ from pathlib import Path
 
 import typer
 
-from autogovern.config_loader import ConfigInvalidError, ConfigNotFoundError, load_config
+from autogovern.config_loader import (
+    ConfigInvalidError,
+    ConfigNotFoundError,
+    ContextInvalidError,
+    ContextNotFoundError,
+    load_config,
+    load_context,
+)
 from autogovern.context import (
     ContextImportError,
     InitResult,
@@ -22,6 +29,7 @@ from autogovern.context import (
     provider_from_env,
     write_init,
 )
+from autogovern.generate import generate_docs
 from autogovern.ingest import ScanResult, scan_repo
 from autogovern.models import Config, ContextManifest, ModelProviderConfig
 from autogovern.provider import build_provider
@@ -207,10 +215,31 @@ def scan(
 
 
 @app.command()
-def generate() -> None:
+def generate(
+    path: Path = typer.Argument(Path("."), help="Repository root to generate docs for."),
+    config: Path | None = typer.Option(None, "--config", help="Alternate config file."),
+) -> None:
     """Full or incremental doc generation into governance/."""
-    _load_config_or_exit(None)
-    typer.echo("generate: not implemented (Phase 7)")
+    cfg = _load_config_or_exit(config)
+    context = _load_context_or_exit()
+    provider = build_provider(cfg)
+    try:
+        scan_result = scan_repo(path, cfg, provider=provider, write_card=False)
+        if not scan_result.signals_found or scan_result.profile is None:
+            typer.echo(f"No agent signals found in {path}. Nothing to generate.", err=True)
+            raise typer.Exit(code=1)
+        result = generate_docs(path, cfg, scan_result.profile, context, provider=provider)
+    finally:
+        provider.close()
+
+    if result.changed:
+        typer.echo(f"generate: regenerated {len(result.regenerated)} document(s):")
+        for doc in result.regenerated:
+            typer.echo(f"  - {doc}")
+        if result.skipped:
+            typer.echo(f"({len(result.skipped)} unchanged, skipped)")
+    else:
+        typer.echo("generate: all documents up to date (nothing regenerated).")
 
 
 @app.command()
@@ -252,6 +281,18 @@ def _load_config_or_exit(config: Path | None) -> Config:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     except ConfigInvalidError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _load_context_or_exit() -> ContextManifest:
+    """Load context, exiting non-zero with the init remedy on failure."""
+    try:
+        return load_context()
+    except ContextNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except ContextInvalidError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
