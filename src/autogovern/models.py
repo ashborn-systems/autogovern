@@ -192,21 +192,59 @@ class DeploymentContext(StrEnum):
     THIRD_PARTY_DISTRIBUTED = "third-party-distributed"
 
 
-class ContextManifest(BaseModel):
-    """Organisational context captured by the ``init`` wizard."""
+class ProjectContext(BaseModel):
+    """Organisation-level context, true for the whole repo.
+
+    Asked once during ``init``. Stable across agents within a project;
+    the fields here describe the organisation, not any single agent.
+    """
 
     organisation: str
     sector: str
     jurisdictions: list[str] = Field(default_factory=list)
-    deployment_context: DeploymentContext
-    intended_users: str = ""
-    autonomy_level: AutonomyLevel
-    oversight_model: str = ""
-    data_categories: list[DataCategory] = Field(default_factory=list)
-    risk_appetite: RiskAppetite
-    strategy: str = ""
+    risk_appetite: str = "conservative"
     owner: str = ""
     review_cadence: str = ""
+    strategy: str = ""
+
+
+class AgentContext(BaseModel):
+    """Per-agent context, describing one specific agent.
+
+    The deployment context, autonomy level, and risk appetite fields are
+    free text at capture time; :func:`autogovern.generate.normalise.normalise_context`
+    resolves them to canonical enum values during generation.
+    """
+
+    deployment_context: str = "internal"
+    autonomy_level: str = "human-in-the-loop"
+    intended_users: str = ""
+    oversight_model: str = ""
+
+
+class NormalisedContext(BaseModel):
+    """Canonical enum values resolved from free-text context fields.
+
+    Populated by :func:`autogovern.generate.normalise.normalise_context`
+    during ``generate``. Not stored in ``context.yaml``; the raw free-text
+    values are what the user edits and what the lockfile tracks.
+    """
+
+    deployment_context: DeploymentContext
+    autonomy_level: AutonomyLevel
+    risk_appetite: RiskAppetite
+
+
+class ContextManifest(BaseModel):
+    """Organisational context captured by the ``init`` wizard.
+
+    Two sections: project-level (org-wide) and agent-level (this specific
+    agent). The agent-level enum fields are free text here and normalised
+    to canonical enums at generation time.
+    """
+
+    project: ProjectContext
+    agent: AgentContext
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +364,7 @@ __all__ = [
     "AgentProfile",
     "AgentProvider",
     "AgentSkill",
+    "AgentContext",
     "AutonomyLevel",
     "Config",
     "ContextManifest",
@@ -338,7 +377,9 @@ __all__ = [
     "MaterialityResult",
     "ModelConfiguration",
     "ModelProviderConfig",
+    "NormalisedContext",
     "Permission",
+    "ProjectContext",
     "PromptEntry",
     "Provenance",
     "ProvenancedField",

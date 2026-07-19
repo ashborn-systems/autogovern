@@ -1,14 +1,12 @@
 # Invalid organisational context manifest for init --from rejection tests.
-# Every field here is intentionally wrong so init can list them all.
-organisation: ""
-sector: ""
-jurisdictions: "UK"  # should be a list
-deployment_context: mars  # invalid enum
-intended_users: ""
-autonomy_level: telepathic  # invalid enum
-oversight_model: ""
-data_categories: ["telepathic"]  # invalid enum value
-risk_appetite: reckless  # invalid enum
-strategy: ""
-owner: ""
-review_cadence: ""
+# Most fields are free-text strings now, so the invalid fixture targets
+# structural type mismatches: null where a string is required, and a
+# string where a list is required.
+project:
+  organisation: null    # should be a string
+  sector: null          # should be a string
+  jurisdictions: "UK"   # should be a list
+  risk_appetite: null   # should be a string
+agent:
+  deployment_context: null  # should be a string
+  autonomy_level: null      # should be a string

@@ -85,10 +85,13 @@ def _permissions(*tools: str, env: list[str] | None = None) -> list[dict[str, st
 @pytest.mark.parametrize(
     ("fd", "expected"),
     [
-        (FieldDiff("context.autonomy_level", "human-in-the-loop", "fully-autonomous"), "major"),
+        (
+            FieldDiff("context.agent.autonomy_level", "human-in-the-loop", "fully-autonomous"),
+            "major",
+        ),
         (FieldDiff("governance.data_categories", ["none"], ["personal"]), "major"),
         (FieldDiff("governance.model_configuration", {"model": "a"}, {"model": "b"}), "minor"),
-        (FieldDiff("context.risk_appetite", "conservative", "aggressive"), "minor"),
+        (FieldDiff("context.project.risk_appetite", "conservative", "aggressive"), "minor"),
         (FieldDiff("name", "a", "b"), "patch"),
         (FieldDiff("governance.dependencies", [], [{"name": "httpx"}]), "patch"),
         (FieldDiff("governance.prompt_inventory.paths", ["a.md"], ["a.md", "b.md"]), "patch"),
@@ -210,15 +213,16 @@ def test_model_swap_bumps_only_affected_docs(repo: Path, config: Config) -> None
 
 
 def test_autonomy_change_bumps_major(repo: Path, config: Config) -> None:
-    from autogovern.models import AutonomyLevel
 
     context = default_context()
     _generate(repo, config, context)
 
-    context2 = context.model_copy(update={"autonomy_level": AutonomyLevel.FULLY_AUTONOMOUS})
+    context2 = context.model_copy(
+        update={"agent": context.agent.model_copy(update={"autonomy_level": "fully-autonomous"})}
+    )
     _generate(repo, config, context2)
 
-    # system-card and oversight consume context.autonomy_level: major bump.
+    # system-card and oversight consume context.agent.autonomy_level: major bump.
     assert _doc_version(repo, "system-card.md") == "1.0.0"
     assert _doc_version(repo, "oversight.md") == "1.0.0"
     # inventory does not consume it.
@@ -269,7 +273,7 @@ def test_lockfiles_roundtrip(repo: Path, config: Config) -> None:
     assert read_lockfile(repo / GOV) is not None
     locked_context = read_context_lock(repo / GOV)
     assert locked_context is not None
-    assert locked_context.autonomy_level == default_context().autonomy_level
+    assert locked_context.agent.autonomy_level == default_context().agent.autonomy_level
 
 
 def test_generated_docs_have_sorted_yaml(repo: Path, config: Config) -> None:

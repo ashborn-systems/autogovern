@@ -89,19 +89,27 @@ def diff_profiles(locked: AgentProfile, current: AgentProfile) -> ProfileDiff:
 def diff_context(locked: ContextManifest | None, current: ContextManifest) -> ProfileDiff:
     """Diff two context manifests, one FieldDiff per changed field.
 
-    Autonomy level and risk appetite changes score deterministically as
-    material (see :mod:`autogovern.detect.scorer`); every other context
-    field change is advisory. A ``None`` locked context (no context.lock,
-    e.g. repos predating context locking) yields an empty diff.
+    Recurses into the ``project`` and ``agent`` sub-models so that field-level
+    changes (e.g. ``context.agent.autonomy_level``) are reported individually,
+    not as whole-section swaps. Autonomy level and risk appetite changes
+    score deterministically as material (see :mod:`autogovern.detect.scorer`);
+    every other context field change is advisory. A ``None`` locked context
+    (no context.lock, e.g. repos predating context locking) yields an empty
+    diff.
     """
     diff = ProfileDiff()
     if locked is None:
         return diff
-    for name in sorted(ContextManifest.model_fields):
-        old = getattr(locked, name)
-        new = getattr(current, name)
-        if old != new:
-            diff.fields.append(FieldDiff(field=f"context.{name}", old=old, new=new))
+    for section_name in ("project", "agent"):
+        locked_section = getattr(locked, section_name)
+        current_section = getattr(current, section_name)
+        for field_name in sorted(type(current_section).model_fields):
+            old = getattr(locked_section, field_name)
+            new = getattr(current_section, field_name)
+            if old != new:
+                diff.fields.append(
+                    FieldDiff(field=f"context.{section_name}.{field_name}", old=old, new=new)
+                )
     return diff
 
 

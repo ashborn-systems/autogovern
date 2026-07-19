@@ -41,6 +41,7 @@ from autogovern.generate.lockfile import (
     write_context_lock,
     write_lockfile,
 )
+from autogovern.generate.normalise import normalise_context
 from autogovern.generate.prompts import build_section_messages
 from autogovern.generate.writer import write_if_changed
 from autogovern.models import (
@@ -48,6 +49,7 @@ from autogovern.models import (
     Config,
     ContextManifest,
     MaterialityResult,
+    NormalisedContext,
 )
 from autogovern.provider import ProviderClient
 from autogovern.versioning import (
@@ -134,7 +136,15 @@ def generate_docs(
     file_hashes = profile_file_hashes(profile)
     enabled = _enabled_documents(config)
     timestamp = now_iso()
+    # Bump-level diff uses the raw context (what the user typed) so any
+    # free-text edit is detected, even if the normalised result is unchanged.
     bump_levels = _compute_bump_levels(governance_dir, profile, context, pack)
+
+    # Normalise free-text context fields once. The normalised copy feeds
+    # section prompts and section hashes (so only meaning-changes trigger
+    # regeneration); the raw context feeds the lockfile and diff.
+    normalised = normalise_context(context, provider)
+    context_for_prompts = _apply_normalisation(context, normalised)
 
     for doc in LLM_DOCS:
         if doc not in enabled:
@@ -147,7 +157,7 @@ def generate_docs(
             doc,
             feed,
             profile,
-            context,
+            context_for_prompts,
             provider,
             pack,
             file_hashes,
@@ -233,6 +243,30 @@ def _maybe_regenerate_llm_doc(
     )
     if write_if_changed(path, render_document(frontmatter, body)):
         result.written_files.append(path)
+
+
+def _apply_normalisation(
+    context: ContextManifest, normalised: NormalisedContext
+) -> ContextManifest:
+    """Return a deep copy of ``context`` with the three enum fields resolved.
+
+    The raw context is preserved for the lockfile and diff; this copy feeds
+    section prompts and section hashes so only meaning-changes trigger
+    regeneration.
+    """
+    return context.model_copy(deep=True).model_copy(
+        update={
+            "project": context.project.model_copy(
+                update={"risk_appetite": normalised.risk_appetite.value}
+            ),
+            "agent": context.agent.model_copy(
+                update={
+                    "deployment_context": normalised.deployment_context.value,
+                    "autonomy_level": normalised.autonomy_level.value,
+                }
+            ),
+        }
+    )
 
 
 def _resolve_declared_inputs(

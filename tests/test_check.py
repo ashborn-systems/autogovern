@@ -190,12 +190,12 @@ def test_check_context_change_detected(
     # Autonomy change is deterministically material.
     context_path = repo / ".autogovern" / "context.yaml"
     raw = yaml.safe_load(context_path.read_text())
-    raw["autonomy_level"] = "fully-autonomous"
+    raw["agent"]["autonomy_level"] = "fully-autonomous"
     context_path.write_text(yaml.safe_dump(raw, sort_keys=False))
 
     check_result = runner.invoke(app, ["check", str(repo)])
     assert check_result.exit_code == 1, check_result.output
-    assert "context.autonomy_level" in check_result.output or "STALE" in check_result.output
+    assert "context.agent.autonomy_level" in check_result.output or "STALE" in check_result.output
 
     fix_result = runner.invoke(app, ["check", str(repo), "--fix"])
     assert fix_result.exit_code == 0, fix_result.output

@@ -86,13 +86,13 @@ def _score_field(fd: FieldDiff) -> MaterialityCriterion | None:
             score=90,
             reasoning=f"data categories changed: {sorted(new_cats)}",
         )
-    if field == "context.autonomy_level":
+    if field == "context.agent.autonomy_level":
         return MaterialityCriterion(
             criterion="autonomy change",
             score=100,
             reasoning=f"autonomy changed from {fd.old!r} to {fd.new!r}",
         )
-    if field == "context.risk_appetite":
+    if field == "context.project.risk_appetite":
         return MaterialityCriterion(
             criterion="risk appetite change",
             score=90,

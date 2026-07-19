@@ -57,9 +57,9 @@ document_feeds:
       - profile.capabilities
       - profile.skills
     context_inputs:
-      - context.autonomy_level
-      - context.intended_users
-      - context.deployment_context
+      - context.agent.autonomy_level
+      - context.agent.intended_users
+      - context.agent.deployment_context
   risk-assessment.md:
     templates: [agentic-governance/governance-artefacts.md#2]        # Risk to control mapping
     knowledge:
@@ -70,9 +70,9 @@ document_feeds:
       - profile.governance.data_categories
       - profile.capabilities
     context_inputs:
-      - context.risk_appetite
-      - context.jurisdictions
-      - context.sector
+      - context.project.risk_appetite
+      - context.project.jurisdictions
+      - context.project.sector
   inventory.md:
     templates: [agentic-governance/governance-artefacts.md#1]        # Central agent register entry
     knowledge:
@@ -91,9 +91,9 @@ document_feeds:
     profile_inputs:
       - profile.governance.permissions_surface
     context_inputs:
-      - context.autonomy_level
-      - context.oversight_model
-      - context.owner
+      - context.agent.autonomy_level
+      - context.agent.oversight_model
+      - context.project.owner
   testing.md:
     templates: [agentic-governance/governance-artefacts.md#6]        # Pre-deployment checklist
     knowledge:
@@ -105,7 +105,7 @@ document_feeds:
       - profile.skills
       - profile.governance.permissions_surface
     context_inputs:
-      - context.review_cadence
+      - context.project.review_cadence
   incident-response.md:
     templates: [agentic-governance/governance-artefacts.md#5]        # Monitoring and incident-response plan
     knowledge:
@@ -113,8 +113,8 @@ document_feeds:
     profile_inputs:
       - profile.governance.permissions_surface
     context_inputs:
-      - context.owner
-      - context.review_cadence
+      - context.project.owner
+      - context.project.review_cadence
   data-protection.md:
     templates: []                                                    # engine template; no dedicated artefact in this pack version
     knowledge:
@@ -122,9 +122,9 @@ document_feeds:
     profile_inputs:
       - profile.governance.data_categories
     context_inputs:
-      - context.jurisdictions
-      - context.deployment_context
-      - context.sector
+      - context.project.jurisdictions
+      - context.agent.deployment_context
+      - context.project.sector
   QUICKSTART.md:
     templates: []                                                    # engine-generated
     knowledge: []

@@ -85,23 +85,24 @@ def test_provider_from_env_returns_none_when_partial(monkeypatch: pytest.MonkeyP
 def test_load_context_from_file_invalid_lists_every_field() -> None:
     """The invalid fixture raises with one line per invalid field.
 
-    The fixture has five invalid fields: jurisdictions, deployment_context,
-    autonomy_level, data_categories, risk_appetite.
+    The fixture has six invalid fields: four null strings and one non-list
+    jurisdictions under project, plus two null strings under agent.
     """
     invalid_path = Path(__file__).resolve().parent / "fixtures" / "context-invalid.yaml"
     with pytest.raises(ContextImportError) as exc_info:
         load_context_from_file(invalid_path)
 
     field_errors = exc_info.value.field_errors
-    # Five distinct field problems, one line each.
-    assert len(field_errors) == 5
+    # Six distinct field problems, one line each.
+    assert len(field_errors) == 6
     joined = "\n".join(field_errors)
     for field in (
-        "jurisdictions",
-        "deployment_context",
-        "autonomy_level",
-        "data_categories",
-        "risk_appetite",
+        "project.organisation",
+        "project.sector",
+        "project.jurisdictions",
+        "project.risk_appetite",
+        "agent.deployment_context",
+        "agent.autonomy_level",
     ):
         assert field in joined
 
@@ -133,7 +134,7 @@ def test_write_init_writes_both_files(tmp_path: Path) -> None:
     loaded_config = load_config(tmp_path / CONFIG_FILE)
     assert loaded_config.model_provider.model == "test-model"
     raw_context = yaml.safe_load((tmp_path / CONTEXT_FILE).read_text())
-    assert ContextManifest.model_validate(raw_context).organisation == "My Organisation"
+    assert ContextManifest.model_validate(raw_context).project.organisation == "My Organisation"
 
 
 def test_write_init_declines_without_confirm(tmp_path: Path) -> None:
@@ -209,6 +210,43 @@ def test_init_defaults_prints_next_steps(clean_cwd: Path, provider_env: None) ->
     assert "autogovern generate" in result.output
 
 
+def test_init_interactive_accepts_free_text_multivalue(clean_cwd: Path, provider_env: None) -> None:
+    """The wizard accepts free-text answers that previously aborted.
+
+    Reproduces the exact inputs from the bug report: multi-value deployment
+    context, multi-value autonomy level, and free-text answers throughout.
+    The wizard completes without a validation error and writes both files.
+    """
+    inputs = (
+        "\n".join(
+            [
+                "Ashborn Systems",  # organisation
+                "Technology",  # sector
+                "UK",  # jurisdictions
+                "conservative",  # risk appetite
+                "CEO",  # owner
+                "quarterly",  # review cadence
+                "automating ai agent governance",  # strategy
+                "customer-facing, internal",  # deployment context (multi-value)
+                "fully-autonomous, human-on-the-loop",  # autonomy (multi-value)
+                "customers, internal developers",  # intended users
+                "Human monitors agents and can act to halt them at any time",  # oversight
+            ]
+        )
+        + "\n"
+    )
+    result = runner.invoke(app, ["init", "--no-hooks"], input=inputs)
+    assert result.exit_code == 0, result.output
+    # No validation error in the output.
+    assert "Invalid context input" not in result.output
+    # The context file contains the free-text values verbatim.
+    raw = yaml.safe_load((clean_cwd / CONTEXT_FILE).read_text())
+    ctx = ContextManifest.model_validate(raw)
+    assert ctx.project.organisation == "Ashborn Systems"
+    assert ctx.agent.deployment_context == "customer-facing, internal"
+    assert ctx.agent.autonomy_level == "fully-autonomous, human-on-the-loop"
+
+
 def test_init_defaults_installs_hooks_and_ci(
     clean_cwd: Path, provider_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -270,11 +308,12 @@ def test_init_from_invalid_exits_nonzero_listing_fields(
     result = runner.invoke(app, ["init", "--from", str(invalid)])
     assert result.exit_code == 1
     for field in (
-        "jurisdictions",
-        "deployment_context",
-        "autonomy_level",
-        "data_categories",
-        "risk_appetite",
+        "project.organisation",
+        "project.sector",
+        "project.jurisdictions",
+        "project.risk_appetite",
+        "agent.deployment_context",
+        "agent.autonomy_level",
     ):
         assert field in result.output
     # Nothing written when validation fails.
@@ -290,7 +329,7 @@ def test_init_from_valid_writes_context(
     result = runner.invoke(app, ["init", "--from", str(manifest_file)])
     assert result.exit_code == 0, result.output
     raw = yaml.safe_load((clean_cwd / CONTEXT_FILE).read_text())
-    assert ContextManifest.model_validate(raw).organisation == "My Organisation"
+    assert ContextManifest.model_validate(raw).project.organisation == "My Organisation"
 
 
 # ---------------------------------------------------------------------------
@@ -343,14 +382,10 @@ def test_format_context_errors_renders_each_field() -> None:
 
     with pytest.raises(ValidationError) as exc_info:
         ContextManifest(
-            organisation="x",
-            sector="x",
-            deployment_context="mars",
-            autonomy_level="telepathic",
-            risk_appetite="reckless",
+            project={"organisation": None, "sector": "x"},
+            agent={"deployment_context": None},
         )
     lines = format_context_errors(exc_info.value)
-    assert len(lines) == 3
+    assert len(lines) == 2
+    assert any("organisation" in line for line in lines)
     assert any("deployment_context" in line for line in lines)
-    assert any("autonomy_level" in line for line in lines)
-    assert any("risk_appetite" in line for line in lines)

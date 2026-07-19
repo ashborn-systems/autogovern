@@ -11,7 +11,7 @@ Spec-contradiction note: the spec lists tools under both "permissions"
 (major) and "tool change" (minor). The resolution applied here: within
 ``governance.permissions_surface``, a tool add/remove is **minor** (a tool
 change) and any other permissions change (env vars, scopes) is **major**
-(a permission-scope change). ``context.risk_appetite`` is classed **minor**:
+(a permission-scope change). ``context.project.risk_appetite`` is classed **minor**:
 it is governance posture, not a descriptive update. These rules are
 deliberate and tested; change them deliberately.
 
@@ -76,7 +76,7 @@ def next_version(current: object, level: BumpLevel) -> str:
 def classify_field_diff(fd: FieldDiff) -> BumpLevel:
     """Classify one field diff by the spec's versioning rules."""
     field = fd.field
-    if field in ("context.autonomy_level", "governance.data_categories"):
+    if field in ("context.agent.autonomy_level", "governance.data_categories"):
         return "major"
     if field == "governance.permissions_surface":
         # Tool add/remove is minor; env/scope change is major (see module
@@ -84,7 +84,7 @@ def classify_field_diff(fd: FieldDiff) -> BumpLevel:
         if permission_tool_names(fd.old) != permission_tool_names(fd.new):
             return "minor"
         return "major"
-    if field in ("governance.model_configuration", "context.risk_appetite"):
+    if field in ("governance.model_configuration", "context.project.risk_appetite"):
         return "minor"
     return "patch"
 

@@ -3,6 +3,26 @@
 All notable changes to autogovern are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.1] - 2026-07-19
+
+### Changed
+- `ContextManifest` split into `project` (org-level) and `agent` (per-agent)
+  sections. The wizard now asks project questions first, then agent questions,
+  with a bordered preamble clarifying that agent-level fields describe this
+  specific agent, not the whole organisation.
+- `deployment_context`, `autonomy_level`, and `risk_appetite` are now free
+  text at capture time. The `init` wizard never aborts on a multi-value or
+  non-canonical answer. An LLM normalisation pass during `generate` resolves
+  them to canonical enum values with a zero-LLM fast path and a graceful
+  fallback to higher-risk defaults.
+- `context.yaml` now has a two-section `project:` / `agent:` structure.
+  Existing files from 0.1.0 are not auto-migrated; re-run `autogovern init`.
+
+### Removed
+- `data_categories` field removed from `ContextManifest`. The scanner-derived
+  `governance.data_categories` (provenance-tracked, read from source) is the
+  live value consumed by `generate`; the user-declared field was never read.
+
 ## [0.1.0] - 2026-07-18
 
 Initial open-source release.

@@ -34,7 +34,14 @@ from autogovern.explain import explain_document
 from autogovern.generate import generate_docs
 from autogovern.hooks import install_pre_commit_hook
 from autogovern.ingest import ScanResult, scan_repo
-from autogovern.models import AgentProfile, Config, ContextManifest, ModelProviderConfig
+from autogovern.models import (
+    AgentContext,
+    AgentProfile,
+    Config,
+    ContextManifest,
+    ModelProviderConfig,
+    ProjectContext,
+)
 from autogovern.observability import build_manifest, write_manifest
 from autogovern.provider import build_provider
 
@@ -125,57 +132,81 @@ def _prompt_provider() -> ModelProviderConfig:
     return ModelProviderConfig(api_base=api_base, model=model, api_key_env=api_key_env)
 
 
+def _print_context_preamble() -> None:
+    """Print the per-agent scope clarification before the context wizard."""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    Console(stderr=True).print(
+        Panel(
+            "The next questions describe THIS agent specifically, not your\n"
+            "whole organisation. Where a single value is asked, pick the one\n"
+            "that best fits this agent.",
+            title="Context for this agent",
+            border_style="blue",
+        )
+    )
+
+
 def _prompt_context() -> ContextManifest:
-    """Interactive context wizard, field by field, with safe defaults."""
+    """Interactive context wizard, field by field, with safe defaults.
+
+    Project-level questions are asked first (true for the whole repo), then
+    agent-level questions (specific to this agent). The three enum fields
+    are free text; the LLM normalises them during generation.
+    """
     base = default_context()
-    organisation = typer.prompt("Organisation legal name", default=base.organisation)
-    sector = typer.prompt("Sector", default=base.sector)
+
+    _print_context_preamble()
+
+    # --- Project-level (org-wide) ---
+    typer.echo("")
+    typer.echo("Project context (true for the whole repo):")
+    organisation = typer.prompt("Organisation legal name", default=base.project.organisation)
+    sector = typer.prompt("Sector", default=base.project.sector)
     jurisdictions_raw = typer.prompt(
-        "Jurisdictions (comma-separated)", default=", ".join(base.jurisdictions)
+        "Jurisdictions (comma-separated)", default=", ".join(base.project.jurisdictions)
     )
     jurisdictions = [j.strip() for j in jurisdictions_raw.split(",") if j.strip()]
-    deployment_context = typer.prompt(
-        "Deployment context (internal / customer-facing / third-party-distributed)",
-        default=base.deployment_context.value,
-    )
-    intended_users = typer.prompt("Intended users", default=base.intended_users)
-    autonomy_level = typer.prompt(
-        "Autonomy level (human-in-the-loop / human-on-the-loop / fully-autonomous)",
-        default=base.autonomy_level.value,
-    )
-    oversight_model = typer.prompt("Oversight model", default=base.oversight_model)
-    data_categories_raw = typer.prompt(
-        "Data categories (comma-separated: none, personal, special-category,"
-        " financial, operational)",
-        default=", ".join(c.value for c in base.data_categories),
-    )
-    data_categories = [d.strip() for d in data_categories_raw.split(",") if d.strip()]
     risk_appetite = typer.prompt(
-        "Risk appetite (conservative / balanced / aggressive)",
-        default=base.risk_appetite.value,
+        "Risk appetite for this project (conservative / balanced / aggressive)",
+        default=base.project.risk_appetite,
     )
-    strategy = typer.prompt("Strategy (one paragraph)", default=base.strategy)
-    owner = typer.prompt("Owner (accountable person or role)", default=base.owner)
-    review_cadence = typer.prompt("Review cadence", default=base.review_cadence)
+    owner = typer.prompt("Owner (accountable person or role)", default=base.project.owner)
+    review_cadence = typer.prompt("Review cadence", default=base.project.review_cadence)
+    strategy = typer.prompt("Strategy (one paragraph)", default=base.project.strategy)
 
-    try:
-        return ContextManifest(
+    # --- Agent-level (this specific agent) ---
+    typer.echo("")
+    typer.echo("Agent context (describe THIS agent specifically):")
+    deployment_context = typer.prompt(
+        "Deployment context for this agent (internal / customer-facing / third-party-distributed)",
+        default=base.agent.deployment_context,
+    )
+    autonomy_level = typer.prompt(
+        "Autonomy level for this agent (human-in-the-loop / human-on-the-loop / fully-autonomous)",
+        default=base.agent.autonomy_level,
+    )
+    intended_users = typer.prompt("Intended users", default=base.agent.intended_users)
+    oversight_model = typer.prompt("Oversight model", default=base.agent.oversight_model)
+
+    return ContextManifest(
+        project=ProjectContext(
             organisation=organisation,
             sector=sector,
             jurisdictions=jurisdictions,
-            deployment_context=deployment_context,
-            intended_users=intended_users,
-            autonomy_level=autonomy_level,
-            oversight_model=oversight_model,
-            data_categories=data_categories,
             risk_appetite=risk_appetite,
-            strategy=strategy,
             owner=owner,
             review_cadence=review_cadence,
-        )
-    except Exception as exc:
-        typer.echo(f"Invalid context input: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+            strategy=strategy,
+        ),
+        agent=AgentContext(
+            deployment_context=deployment_context,
+            autonomy_level=autonomy_level,
+            intended_users=intended_users,
+            oversight_model=oversight_model,
+        ),
+    )
 
 
 def _print_init_result(result: InitResult, context: ContextManifest) -> None:

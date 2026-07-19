@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from autogovern.models import (
     AgentCard,
+    AgentContext,
     AgentProfile,
     AgentProvider,
     AgentSkill,
@@ -19,7 +20,9 @@ from autogovern.models import (
     MaterialityResult,
     ModelConfiguration,
     ModelProviderConfig,
+    NormalisedContext,
     Permission,
+    ProjectContext,
     PromptEntry,
     Provenance,
     ProvenancedField,
@@ -87,13 +90,16 @@ def _profile() -> AgentProfile:
 
 def _context() -> ContextManifest:
     return ContextManifest(
-        organisation="Acme Ltd",
-        sector="financial services",
-        jurisdictions=["UK", "EU"],
-        deployment_context=DeploymentContext.INTERNAL,
-        autonomy_level=AutonomyLevel.HUMAN_IN_THE_LOOP,
-        data_categories=[DataCategory.FINANCIAL],
-        risk_appetite=RiskAppetite.BALANCED,
+        project=ProjectContext(
+            organisation="Acme Ltd",
+            sector="financial services",
+            jurisdictions=["UK", "EU"],
+            risk_appetite="balanced",
+        ),
+        agent=AgentContext(
+            deployment_context="internal",
+            autonomy_level="human-in-the-loop",
+        ),
     )
 
 
@@ -161,37 +167,53 @@ def test_provenanced_field_round_trip() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rejection: invalid enum values
+# Free-text acceptance: context fields accept arbitrary strings
 # ---------------------------------------------------------------------------
 
 
-def test_context_rejects_invalid_autonomy_level() -> None:
+def test_context_accepts_free_text_autonomy_level() -> None:
+    """Autonomy level is free text; the LLM normalises it at generation time."""
+    ctx = ContextManifest(
+        project=ProjectContext(organisation="x", sector="x"),
+        agent=AgentContext(
+            deployment_context="internal",
+            autonomy_level="fully-autonomous, human-on-the-loop",
+        ),
+    )
+    assert ctx.agent.autonomy_level == "fully-autonomous, human-on-the-loop"
+
+
+def test_context_accepts_free_text_deployment_context() -> None:
+    """Deployment context is free text; the LLM normalises it at generation time."""
+    ctx = ContextManifest(
+        project=ProjectContext(organisation="x", sector="x"),
+        agent=AgentContext(
+            deployment_context="customer-facing, internal",
+            autonomy_level="human-in-the-loop",
+        ),
+    )
+    assert ctx.agent.deployment_context == "customer-facing, internal"
+
+
+def test_context_accepts_free_text_risk_appetite() -> None:
+    """Risk appetite is free text; the LLM normalises it at generation time."""
+    ctx = ContextManifest(
+        project=ProjectContext(organisation="x", sector="x", risk_appetite="conservative"),
+        agent=AgentContext(),
+    )
+    assert ctx.project.risk_appetite == "conservative"
+
+
+def test_normalised_context_validates_canonical_enums() -> None:
+    """NormalisedContext still enforces the canonical enum vocabulary."""
+    n = NormalisedContext(
+        deployment_context=DeploymentContext.CUSTOMER_FACING,
+        autonomy_level=AutonomyLevel.FULLY_AUTONOMOUS,
+        risk_appetite=RiskAppetite.AGGRESSIVE,
+    )
+    assert n.deployment_context == DeploymentContext.CUSTOMER_FACING
     with pytest.raises(ValidationError):
-        ContextManifest(
-            organisation="x",
-            sector="x",
-            deployment_context=DeploymentContext.INTERNAL,
-            autonomy_level="telepathic",  # type: ignore[arg-type]
-            risk_appetite=RiskAppetite.BALANCED,
-        )
-
-
-def test_context_rejects_invalid_risk_appetite() -> None:
-    with pytest.raises(ValidationError):
-        ContextManifest(
-            organisation="x",
-            sector="x",
-            deployment_context=DeploymentContext.INTERNAL,
-            autonomy_level=AutonomyLevel.HUMAN_IN_THE_LOOP,
-            risk_appetite="reckless",  # type: ignore[arg-type]
-        )
-
-
-def test_context_rejects_invalid_deployment_context() -> None:
-    with pytest.raises(ValidationError):
-        ContextManifest(
-            organisation="x",
-            sector="x",
+        NormalisedContext(
             deployment_context="mars",  # type: ignore[arg-type]
             autonomy_level=AutonomyLevel.HUMAN_IN_THE_LOOP,
             risk_appetite=RiskAppetite.BALANCED,

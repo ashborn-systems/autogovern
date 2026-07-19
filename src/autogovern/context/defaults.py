@@ -8,11 +8,9 @@ without creating a cycle.
 from __future__ import annotations
 
 from autogovern.models import (
-    AutonomyLevel,
+    AgentContext,
     ContextManifest,
-    DataCategory,
-    DeploymentContext,
-    RiskAppetite,
+    ProjectContext,
 )
 
 
@@ -24,18 +22,21 @@ def default_context() -> ContextManifest:
     replaces these with organisation-specific values.
     """
     return ContextManifest(
-        organisation="My Organisation",
-        sector="general",
-        jurisdictions=["UK"],
-        deployment_context=DeploymentContext.INTERNAL,
-        intended_users="internal developers",
-        autonomy_level=AutonomyLevel.HUMAN_IN_THE_LOOP,
-        oversight_model="human reviews agent outputs before acting on them",
-        data_categories=[DataCategory.NONE],
-        risk_appetite=RiskAppetite.CONSERVATIVE,
-        strategy="exploring agent-assisted development",
-        owner="engineering lead",
-        review_cadence="quarterly",
+        project=ProjectContext(
+            organisation="My Organisation",
+            sector="general",
+            jurisdictions=["UK"],
+            risk_appetite="conservative",
+            strategy="exploring agent-assisted development",
+            owner="engineering lead",
+            review_cadence="quarterly",
+        ),
+        agent=AgentContext(
+            deployment_context="internal",
+            intended_users="internal developers",
+            autonomy_level="human-in-the-loop",
+            oversight_model="human reviews agent outputs before acting on them",
+        ),
     )
 
 
