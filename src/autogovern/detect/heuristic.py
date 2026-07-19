@@ -47,14 +47,27 @@ def heuristic_pass(
 
 
 def _glob_match(path: str, pattern: str) -> bool:
-    """Match a path against a glob, supporting ``**`` recursively.
+    """Match a path against a glob, supporting ``**`` and nested agent roots.
 
-    ``fnmatch`` does not handle ``**`` specially, so we normalise ``**`` to
-    a multi-segment wildcard by checking each prefix. For the default watched
-    paths (single-segment globs like ``CLAUDE.md`` or ``.claude/**``), this
-    is a simple fnmatch.
+    Rules:
+    - A pattern with no ``/`` (``CLAUDE.md``, ``.mcp.json``) matches the
+      path's basename, so it fires at any depth — multi-agent repos keep
+      their instruction files in subdirectories.
+    - A pattern with a ``/`` (``prompts/**``, ``.well-known/agent.json``)
+      matches against the full path and against every segment-boundary
+      suffix, so ``agents/x/prompts/system.md`` matches ``prompts/**``.
+    - ``dir/**`` matches everything under ``dir/``.
     """
-    # Normalise: ``dir/**`` matches everything under dir/.
+    if "/" not in pattern:
+        return fnmatch.fnmatch(path.rsplit("/", 1)[-1], pattern)
+    candidates = [path]
+    parts = path.split("/")
+    candidates.extend("/".join(parts[i:]) for i in range(1, len(parts)))
+    return any(_match_one(candidate, pattern) for candidate in candidates)
+
+
+def _match_one(path: str, pattern: str) -> bool:
+    """Match a single path against a single anchored glob pattern."""
     if pattern.endswith("/**"):
         prefix = pattern[:-3]
         return path == prefix or path.startswith(prefix + "/")

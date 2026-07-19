@@ -15,7 +15,9 @@ from autogovern.frameworks.loader import (
     ResolvedSection,
     SectionDependencyGraph,
     load_pack,
+    resolve_pack_dir,
     resolve_section,
+    to_declared_input,
     to_graph_input,
 )
 
@@ -28,6 +30,8 @@ __all__ = [
     "ResolvedSection",
     "SectionDependencyGraph",
     "load_pack",
+    "resolve_pack_dir",
     "resolve_section",
+    "to_declared_input",
     "to_graph_input",
 ]

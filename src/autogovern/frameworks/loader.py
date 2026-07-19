@@ -25,8 +25,12 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from autogovern.models import AgentProfile, ContextManifest
 
 # Directory shipping the bundled pack. Resolved relative to this file so the
 # loader works regardless of the caller's cwd.
@@ -287,17 +291,57 @@ def to_graph_input(field: str) -> str | None:
     return None
 
 
+def to_declared_input(field: str) -> str | None:
+    """Convert a diff field name to the exact declared-input path a feed uses.
+
+    Like :func:`to_graph_input`, but per-agent context fields are normalised
+    to the wildcard form the pack declares (``context.agents.my-agent.autonomy_level``
+    → ``context.agents.*.autonomy_level``), so callers can compare directly
+    against ``DocumentFeed.all_inputs``. A whole-agent context change
+    (``context.agents.<name>``) names no single declared input and returns
+    None.
+    """
+    graph_input = to_graph_input(field)
+    if graph_input is None:
+        return None
+    prefix = "context.agents."
+    if graph_input.startswith(prefix) and not graph_input.startswith("context.agents.*."):
+        remainder = graph_input.removeprefix(prefix)
+        if "." not in remainder:
+            # Whole-agent add/remove: no single declared input.
+            return None
+        field_name = remainder.rsplit(".", 1)[1]
+        return f"context.agents.*.{field_name}"
+    return graph_input
+
+
+def resolve_pack_dir(configured: str | None, root: Path) -> Path | None:
+    """Resolve a configured custom pack path against the repo root.
+
+    Returns None when no custom pack is configured (the bundled pack is
+    used). Relative paths are interpreted relative to the repo root, so a
+    committed ``framework_pack: governance-pack/`` travels with the repo.
+    """
+    if not configured:
+        return None
+    path = Path(configured)
+    return path if path.is_absolute() else (root / path).resolve()
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
 
 
 def load_pack(pack_dir: Path | None = None) -> Pack:
-    """Load and fully resolve the framework pack.
+    """Load, fully resolve, and validate the framework pack.
 
-    Every reference in ``pack.yaml`` is resolved eagerly. A single dangling
-    reference aborts the load with a :class:`PackLoadError` naming it, so the
-    generation engine never sees a half-resolved pack.
+    Every reference in ``pack.yaml`` is resolved eagerly, and every declared
+    document-feed input is validated against the real input resolver. A
+    single dangling reference or unknown input aborts the load with a
+    :class:`PackLoadError` naming it, so the generation engine never sees a
+    half-resolved pack and a broken custom pack fails at load time, never
+    mid-generation.
 
     Args:
         pack_dir: Directory containing ``pack.yaml``. Defaults to the
@@ -317,12 +361,15 @@ def load_pack(pack_dir: Path | None = None) -> Pack:
     pack_meta = raw.get("pack", {})
     if not isinstance(pack_meta, dict):
         raise PackLoadError("pack.yaml: 'pack' block must be a mapping")
+    if not pack_meta.get("id") or not pack_meta.get("version"):
+        raise PackLoadError("pack.yaml: 'pack' block must set a non-empty id and version")
 
     frameworks = _load_frameworks(raw.get("frameworks", []), root)
     style_authority = _resolve_one(raw, "style_authority", root)
     enterprise_hooks = _load_enterprise_hooks(raw.get("enterprise_hooks", {}), root)
     scope_notes = _collect_scope_notes(frameworks)
     feeds, graph = _load_document_feeds(raw.get("document_feeds", {}), root)
+    _validate_feed_inputs(feeds)
 
     return Pack(
         id=str(pack_meta.get("id", "")),
@@ -335,6 +382,69 @@ def load_pack(pack_dir: Path | None = None) -> Pack:
         scope_notes=scope_notes,
         graph=graph,
     )
+
+
+def _validate_feed_inputs(feeds: dict[str, DocumentFeed]) -> None:
+    """Validate every declared feed input against the real input resolver.
+
+    Each declared path is resolved against a reference profile/context, with
+    ``context.agents.*.field`` wildcards concretised to a reference agent.
+    Every failure is collected and reported in one :class:`PackLoadError`,
+    so a pack author sees all broken references in a single run.
+    """
+    # Deferred import: generate.inputs sits above this module in the stack.
+    from autogovern.generate.inputs import extract_input
+
+    profile, context = _reference_inputs()
+    errors: list[str] = []
+    for doc_name, feed in sorted(feeds.items()):
+        for path in [*feed.profile_inputs, *feed.context_inputs]:
+            concrete = path.replace("context.agents.*.", "context.agents.reference-agent.")
+            try:
+                extract_input(concrete, profile, context)
+            except KeyError:
+                errors.append(f"document_feeds.{doc_name}: unknown input {path!r}")
+    if errors:
+        joined = "\n".join(f"  - {line}" for line in errors)
+        raise PackLoadError(f"pack.yaml declares inputs that do not resolve:\n{joined}")
+
+
+def _reference_inputs() -> tuple[AgentProfile, ContextManifest]:
+    """A minimal but complete profile + context for validating feed inputs."""
+    from autogovern.models import (
+        AgentContext,
+        AgentProfile,
+        ContextManifest,
+        GovernanceExtension,
+        ModelConfiguration,
+        ProjectContext,
+        Provenance,
+        ProvenancedField,
+    )
+
+    provenance = Provenance(source_path="reference", content_hash="reference")
+
+    def field_of(value: Any) -> ProvenancedField[Any]:
+        return ProvenancedField(value=value, provenance=provenance)
+
+    profile = AgentProfile(
+        name="reference-agent",
+        description="reference",
+        url="",
+        version="0.0.0",
+        governance=GovernanceExtension(
+            model_configuration=field_of(ModelConfiguration(provider="x", model="x")),
+            permissions_surface=field_of([]),
+            data_categories=field_of([]),
+            dependencies=field_of([]),
+            prompt_inventory=field_of([]),
+        ),
+    )
+    context = ContextManifest(
+        project=ProjectContext(organisation="x", sector="x"),
+        agents={"reference-agent": AgentContext()},
+    )
+    return profile, context
 
 
 def _load_frameworks(raw_frameworks: object, root: Path) -> list[FrameworkEntry]:

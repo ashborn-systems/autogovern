@@ -44,7 +44,11 @@ Pre-commit: `uv run pre-commit run --all-files`
 5. **The framework pack is data, never code.** The generation engine treats
    `src/autogovern/frameworks/` as data. Do not import framework content as
    Python modules — read and parse it at runtime.
-6. **The tool is model-agnostic.** No default model, no bundled provider list.
+6. **Agent keys are canonical and single-sourced.** `ingest/discovery.py`
+   owns the one naming rule (root agent: profile name; nested agent:
+   hyphen-joined root path; `dedupe_keys` for collisions). Never derive an
+   agent's directory or context key anywhere else.
+7. **The tool is model-agnostic.** No default model, no bundled provider list.
    Scanner logic treats every OpenAI-compatible provider even-handedly, and
    tests/fixtures rotate across a realistic mix of providers rather than
    defaulting to one vendor. `CLAUDE.md`/`.claude/` appear in discovery globs

@@ -21,8 +21,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
-from autogovern.generate.writer import write_if_changed
+from autogovern.generate.writer import WriteSet, write_if_changed
 from autogovern.models import AgentProfile, ContextManifest
 
 LOCKFILE_NAME = "profile.lock"
@@ -41,15 +42,30 @@ def write_lockfile(governance_dir: Path, profile: AgentProfile) -> Path:
     return path
 
 
+def stage_lockfile(writes: WriteSet, governance_dir: Path, profile: AgentProfile) -> Path:
+    """Stage ``governance/profile.lock`` in a WriteSet (committed by the engine)."""
+    path = governance_dir / LOCKFILE_NAME
+    writes.add(path, serialise_profile(profile))
+    return path
+
+
 def read_lockfile(governance_dir: Path) -> AgentProfile | None:
-    """Read the profile lockfile, or return None if absent."""
+    """Read the profile lockfile, or return None if absent or unreadable.
+
+    A missing, corrupted, hand-edited, or older-schema lockfile is treated
+    as "no lockfile": the caller then treats the agent as new (everything
+    material, regenerate). ``check`` never crashes on a bad lockfile.
+    """
     path = governance_dir / LOCKFILE_NAME
     if not path.is_file():
         return None
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        return AgentProfile.model_validate(raw)
+    except (OSError, yaml.YAMLError, ValidationError, TypeError, ValueError):
         return None
-    return AgentProfile.model_validate(raw)
 
 
 def write_context_lock(governance_dir: Path, context: ContextManifest) -> Path:
@@ -59,15 +75,29 @@ def write_context_lock(governance_dir: Path, context: ContextManifest) -> Path:
     return path
 
 
+def stage_context_lock(writes: WriteSet, governance_dir: Path, context: ContextManifest) -> Path:
+    """Stage ``governance/context.lock`` in a WriteSet (committed by the engine)."""
+    path = governance_dir / CONTEXT_LOCK_NAME
+    writes.add(path, serialise_context(context))
+    return path
+
+
 def read_context_lock(governance_dir: Path) -> ContextManifest | None:
-    """Read the context lockfile, or return None if absent."""
+    """Read the context lockfile, or None if absent or unreadable.
+
+    Same rule as :func:`read_lockfile`: a bad lock means "no lock", so
+    ``check`` degrades to treating the context as new rather than crashing.
+    """
     path = governance_dir / CONTEXT_LOCK_NAME
     if not path.is_file():
         return None
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        return ContextManifest.model_validate(raw)
+    except (OSError, yaml.YAMLError, ValidationError, TypeError, ValueError):
         return None
-    return ContextManifest.model_validate(raw)
 
 
 def serialise_context(context: ContextManifest) -> str:
@@ -82,6 +112,8 @@ __all__ = [
     "read_lockfile",
     "serialise_context",
     "serialise_profile",
+    "stage_context_lock",
+    "stage_lockfile",
     "write_context_lock",
     "write_lockfile",
 ]

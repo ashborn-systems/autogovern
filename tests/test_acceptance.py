@@ -105,8 +105,8 @@ def test_criterion_1_init_generate_full_set(
     assert expected_project <= actual_project
     assert expected_agent <= actual_agent
 
-    # AgentCard was written by scan.
-    assert (repo / ".well-known" / "agent.json").is_file() or True  # scan writes it
+    # AgentCard was written (generate scans with card writing enabled).
+    assert (repo / ".well-known" / "agent.json").is_file()
 
     # Every doc has frontmatter.
     for doc in gov.iterdir():

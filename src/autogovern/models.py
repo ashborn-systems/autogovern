@@ -299,6 +299,13 @@ class Config(BaseModel):
     watched_paths: list[str] = Field(default_factory=lambda: list(DEFAULT_WATCHED_PATHS))
     thresholds: Thresholds = Field(default_factory=Thresholds)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    framework_pack: str | None = Field(
+        default=None,
+        description=(
+            "Path to a custom framework pack directory (containing pack.yaml), "
+            "relative to the repo root or absolute. None uses the bundled pack."
+        ),
+    )
     documents: dict[str, bool] = Field(
         default_factory=lambda: {
             "quickstart": True,

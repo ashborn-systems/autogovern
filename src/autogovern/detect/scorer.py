@@ -30,7 +30,7 @@ def score_deterministic(diff: ProfileDiff) -> list[MaterialityCriterion]:
     A non-empty list means the change is material by definition; the caller
     takes the max score and skips the semantic pass. An empty list means no
     deterministic rule fired, so the semantic scorer should run if there are
-    semantic fields.
+    unresolved fields.
     """
     criteria: list[MaterialityCriterion] = []
     for fd in diff.fields:
@@ -38,6 +38,17 @@ def score_deterministic(diff: ProfileDiff) -> list[MaterialityCriterion]:
         if criterion is not None:
             criteria.append(criterion)
     return criteria
+
+
+def is_deterministically_scored(fd: FieldDiff) -> bool:
+    """True if a deterministic rule covers this field diff.
+
+    Fields no rule covers (for example ``description``, ``version``, and
+    prompt content changes) are the semantic scorer's job: the spec routes
+    every profile diff not resolved deterministically to the 0-100 scorer,
+    not just prompt content.
+    """
+    return _score_field(fd) is not None
 
 
 def _score_field(fd: FieldDiff) -> MaterialityCriterion | None:
@@ -211,6 +222,7 @@ __all__ = [
     "SemanticScore",
     "band_for",
     "build_result",
+    "is_deterministically_scored",
     "permission_tool_names",
     "score_deterministic",
     "score_semantic",

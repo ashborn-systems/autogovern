@@ -1,0 +1,61 @@
+# Minimal custom pack for testing user-supplied framework packs.
+pack:
+  id: custom-test-pack
+  version: 9.9.9
+  source: test fixture
+  licence: Apache-2.0
+
+frameworks:
+  - id: custom
+    path: custom/
+    role: primary
+    files:
+      knowledge_base: custom/knowledge.md
+
+style_authority: custom/knowledge.md#style
+
+document_feeds:
+  system-card.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.name
+      - profile.description
+    context_inputs:
+      - context.agents.*.autonomy_level
+  risk-assessment.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.governance.permissions_surface
+    context_inputs: []
+  data-protection.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.governance.data_categories
+    context_inputs: []
+  oversight.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.governance.permissions_surface
+    context_inputs: []
+  inventory.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.governance.dependencies
+    context_inputs: []
+  testing.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.skills
+    context_inputs: []
+  incident-response.md:
+    templates: [custom/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.governance.permissions_surface
+    context_inputs: []

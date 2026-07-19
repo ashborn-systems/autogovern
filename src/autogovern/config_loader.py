@@ -30,6 +30,7 @@ ENV_API_BASE = "AUTOGOVERN_API_BASE"
 ENV_MODEL = "AUTOGOVERN_MODEL"
 ENV_API_KEY_ENV = "AUTOGOVERN_API_KEY_ENV"
 ENV_TEMPERATURE = "AUTOGOVERN_TEMPERATURE"
+ENV_FRAMEWORK_PACK = "AUTOGOVERN_FRAMEWORK_PACK"
 
 
 class ConfigNotFoundError(FileNotFoundError):
@@ -120,7 +121,10 @@ def load_config_or_env(path: Path | None = None) -> Config:
     except ConfigNotFoundError:
         provider = provider_from_env()
         if provider is not None:
-            return Config(model_provider=provider)
+            return Config(
+                model_provider=provider,
+                framework_pack=os.environ.get(ENV_FRAMEWORK_PACK) or None,
+            )
         raise
 
 
@@ -179,6 +183,7 @@ __all__ = [
     "ContextNotFoundError",
     "ENV_API_BASE",
     "ENV_API_KEY_ENV",
+    "ENV_FRAMEWORK_PACK",
     "ENV_MODEL",
     "ENV_TEMPERATURE",
     "load_config",

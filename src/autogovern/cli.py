@@ -47,10 +47,10 @@ from autogovern.models import (
     RunManifest,
 )
 from autogovern.observability import build_manifest, write_manifest
-from autogovern.provider import build_provider
+from autogovern.provider import MissingApiKeyError, ProviderError, build_provider
 from autogovern.tui import enable_plain
 from autogovern.tui.activity import Stage, StageTracker
-from autogovern.tui.panels import check_verdict, init_summary, summary_line
+from autogovern.tui.panels import check_verdict, error_triplet, init_summary, summary_line
 from autogovern.tui.status import print_status
 
 app = typer.Typer(
@@ -98,7 +98,7 @@ def init(
     root = Path.cwd()
     non_interactive = defaults or from_file is not None
 
-    context = _resolve_context(from_file=from_file, defaults=defaults)
+    context = _resolve_context(root, from_file=from_file, defaults=defaults)
     provider = _resolve_provider(non_interactive)
     config = build_config(provider)
 
@@ -119,7 +119,7 @@ def init(
     _print_init_result(result, context)
 
 
-def _resolve_context(*, from_file: Path | None, defaults: bool) -> ContextManifest:
+def _resolve_context(root: Path, *, from_file: Path | None, defaults: bool) -> ContextManifest:
     """Return a validated ContextManifest from --from, --defaults, or prompts."""
     if from_file is not None:
         try:
@@ -129,7 +129,7 @@ def _resolve_context(*, from_file: Path | None, defaults: bool) -> ContextManife
             raise typer.Exit(code=1) from exc
     if defaults:
         return default_context()
-    return _prompt_context()
+    return _prompt_context(root)
 
 
 def _resolve_provider(non_interactive: bool) -> ModelProviderConfig:
@@ -158,32 +158,24 @@ def _prompt_provider() -> ModelProviderConfig:
     return ModelProviderConfig(api_base=api_base, model=model, api_key_env=api_key_env)
 
 
-def _print_context_preamble() -> None:
-    """Print the per-agent scope clarification before the context wizard."""
-    from rich.console import Console
-    from rich.panel import Panel
-
-    Console(stderr=True).print(
-        Panel(
-            "The next questions describe THIS agent specifically, not your\n"
-            "whole organisation. Where a single value is asked, pick the one\n"
-            "that best fits this agent.",
-            title="Context for this agent",
-            border_style="blue",
-        )
-    )
-
-
-def _prompt_context() -> ContextManifest:
+def _prompt_context(root: Path) -> ContextManifest:
     """Interactive context wizard, field by field, with safe defaults.
 
     Project-level questions are asked first (true for the whole repo), then
-    agent-level questions (specific to this agent). The three enum fields
-    are free text; the LLM normalises them during generation.
-    """
-    base = default_context()
+    agent-level questions per discovered agent. The wizard scans the repo
+    deterministically (no LLM) and keys each agent's answers by its
+    canonical agent key — the same key the engine uses during ``generate``,
+    so wizard answers always land where the engine looks. When no agent is
+    discovered, a single ``default`` entry is captured (it applies to any
+    agent discovered later at the repo root).
 
-    _print_context_preamble()
+    The three enum fields are free text; the LLM normalises them during
+    generation.
+    """
+    from autogovern.ingest import discover_agent_identities
+
+    base = default_context()
+    template = base.agents.get("default", AgentContext())
 
     # --- Project-level (org-wide) ---
     typer.echo("")
@@ -202,23 +194,27 @@ def _prompt_context() -> ContextManifest:
     review_cadence = typer.prompt("Review cadence", default=base.project.review_cadence)
     strategy = typer.prompt("Strategy (one paragraph)", default=base.project.strategy)
 
-    # --- Agent-level (this specific agent) ---
-    typer.echo("")
-    typer.echo("Agent context (describe THIS agent specifically):")
-    deployment_context = typer.prompt(
-        "Deployment context for this agent (internal / customer-facing / third-party-distributed)",
-        default=base.agents.get("default", AgentContext()).deployment_context,
-    )
-    autonomy_level = typer.prompt(
-        "Autonomy level for this agent (human-in-the-loop / human-on-the-loop / fully-autonomous)",
-        default=base.agents.get("default", AgentContext()).autonomy_level,
-    )
-    intended_users = typer.prompt(
-        "Intended users", default=base.agents.get("default", AgentContext()).intended_users
-    )
-    oversight_model = typer.prompt(
-        "Oversight model", default=base.agents.get("default", AgentContext()).oversight_model
-    )
+    # --- Agent-level (per discovered agent) ---
+    identities = discover_agent_identities(root) or [("default", "this agent")]
+    agents: dict[str, AgentContext] = {}
+    for key, display_name in identities:
+        _print_context_preamble(display_name)
+        deployment_context = typer.prompt(
+            "Deployment context (internal / customer-facing / third-party-distributed)",
+            default=template.deployment_context,
+        )
+        autonomy_level = typer.prompt(
+            "Autonomy level (human-in-the-loop / human-on-the-loop / fully-autonomous)",
+            default=template.autonomy_level,
+        )
+        intended_users = typer.prompt("Intended users", default=template.intended_users)
+        oversight_model = typer.prompt("Oversight model", default=template.oversight_model)
+        agents[key] = AgentContext(
+            deployment_context=deployment_context,
+            autonomy_level=autonomy_level,
+            intended_users=intended_users,
+            oversight_model=oversight_model,
+        )
 
     return ContextManifest(
         project=ProjectContext(
@@ -230,14 +226,23 @@ def _prompt_context() -> ContextManifest:
             review_cadence=review_cadence,
             strategy=strategy,
         ),
-        agents={
-            "default": AgentContext(
-                deployment_context=deployment_context,
-                autonomy_level=autonomy_level,
-                intended_users=intended_users,
-                oversight_model=oversight_model,
-            )
-        },
+        agents=agents,
+    )
+
+
+def _print_context_preamble(agent_display_name: str) -> None:
+    """Print the per-agent scope clarification before each agent's questions."""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    Console(stderr=True).print(
+        Panel(
+            f"The next questions describe {agent_display_name} specifically, not your\n"
+            "whole organisation. Where a single value is asked, pick the one\n"
+            "that best fits this agent.",
+            title="Context for this agent",
+            border_style="blue",
+        )
     )
 
 
@@ -281,6 +286,8 @@ def scan(
         result = scan_repo(path, cfg, provider=provider, write_card=not no_write_card)
         usage = provider.total_usage
         calls = provider.call_log
+    except ProviderError as exc:
+        raise _exit_for_provider_error(exc) from exc
     finally:
         provider.close()
     elapsed = time.time() - start
@@ -351,11 +358,12 @@ def generate(
     try:
         if profile_path is not None:
             profile = _load_profile_or_exit(profile_path)
-            from autogovern.ingest import ScannedAgent, ScanResult
+            from autogovern.ingest import ScannedAgent, ScanResult, agent_key
 
             scan_result = ScanResult(
                 agents=[
                     ScannedAgent(
+                        key=agent_key(".", profile.name),
                         name=profile.name,
                         root=".",
                         profile=profile,
@@ -368,7 +376,7 @@ def generate(
         else:
             if tracker:
                 tracker.begin("scan")
-            scan_result = scan_repo(path, cfg, provider=provider, write_card=False)
+            scan_result = scan_repo(path, cfg, provider=provider, write_card=True)
             if not scan_result.agents:
                 if tracker:
                     tracker.complete("scan", "no signals")
@@ -393,6 +401,8 @@ def generate(
                 context_from_file=context_from_file,
             )
         usage = provider.total_usage
+    except ProviderError as exc:
+        raise _exit_for_provider_error(exc) from exc
     finally:
         provider.close()
         tracing_shutdown()
@@ -473,6 +483,8 @@ def diff(
         )
         usage = provider.total_usage
         calls = provider.call_log
+    except ProviderError as exc:
+        raise _exit_for_provider_error(exc) from exc
     finally:
         provider.close()
 
@@ -530,6 +542,8 @@ def check(
             profile=profile,
         )
         usage = provider.total_usage
+    except ProviderError as exc:
+        raise _exit_for_provider_error(exc) from exc
     finally:
         provider.close()
 
@@ -540,9 +554,11 @@ def check(
 
         typer.echo(_json.dumps(result.to_dict()))
     else:
+        _print_per_agent_verdicts(result)
         criteria = None
-        if hasattr(result, "criteria") and result.criteria:
-            criteria = [c if isinstance(c, dict) else c.model_dump() for c in result.criteria]
+        detection = result.detection
+        if detection is not None and detection.materiality is not None:
+            criteria = [c.model_dump() for c in detection.materiality.criteria] or None
         check_verdict(
             current=result.current,
             fixed=result.fixed,
@@ -554,6 +570,40 @@ def check(
         )
 
     raise typer.Exit(code=result.exit_code)
+
+
+def _print_per_agent_verdicts(result: Any) -> None:
+    """Print one status line per agent on multi-agent repos.
+
+    Single-agent repos keep the single verdict panel; with several agents,
+    each gets its own line so a stale agent further down the list is never
+    hidden behind the worst one.
+    """
+    verdicts = getattr(result, "per_agent", None) or []
+    if len(verdicts) <= 1:
+        return
+    from autogovern.tui.console import get_console
+    from autogovern.tui.states import dim, primary
+
+    console = get_console()
+    console.print(primary(f"{len(verdicts)} agents checked:"))
+    for verdict in verdicts:
+        if verdict.current:
+            console.print(dim(f"  {verdict.name}: current"))
+        elif verdict.fixed:
+            console.print(dim(f"  {verdict.name}: fixed (regenerated)"))
+        else:
+            console.print(
+                dim(
+                    f"  {verdict.name}: {verdict.band} (score {verdict.score})"
+                    + (
+                        f" — stale: {', '.join(verdict.stale_sections)}"
+                        if verdict.stale_sections
+                        else ""
+                    )
+                )
+            )
+    console.print("")
 
 
 @app.command()
@@ -775,10 +825,7 @@ def _load_config_or_env_or_exit(config: Path | None, model: str | None = None) -
     """Load config from disk or env vars, exiting non-zero if neither exists."""
     try:
         cfg = load_config_or_env(config)
-    except ConfigNotFoundError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-    except ConfigInvalidError as exc:
+    except (ConfigNotFoundError, ConfigInvalidError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     if model is not None:
@@ -788,8 +835,37 @@ def _load_config_or_env_or_exit(config: Path | None, model: str | None = None) -
     return cfg
 
 
+def _exit_for_provider_error(exc: ProviderError) -> typer.Exit:
+    """Render a provider failure as a clean what/why/fix message, never a traceback."""
+    if isinstance(exc, MissingApiKeyError):
+        error_triplet(
+            what="Model provider API key not found",
+            why=str(exc),
+            fix="export the key in your shell, then re-run the command",
+        )
+    else:
+        error_triplet(
+            what="Model provider error",
+            why=str(exc),
+            fix="check the provider settings and network connection, then retry",
+        )
+    return typer.Exit(code=1)
+
+
 def _load_profile_or_exit(profile_path: Path) -> AgentProfile:
-    """Load a --profile JSON file, exiting cleanly on any read/parse error."""
+    """Load a --profile JSON file, exiting cleanly on any read/parse error.
+
+    ``--profile -`` reads the profile JSON from stdin, which is how platform
+    integrations pipe a profile straight in without a temporary file.
+    """
+    from autogovern.api import load_profile_text
+
+    if str(profile_path) == "-":
+        try:
+            return load_profile_text(sys.stdin.read())
+        except Exception as exc:
+            typer.echo(f"Invalid AgentProfile on stdin: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
     try:
         return load_profile(profile_path)
     except FileNotFoundError:
@@ -869,13 +945,24 @@ def _write_generate_manifest(
                 "changed_input": reasons.get(doc, "input hash changed"),
             }
         )
+    # Normalisation outcomes live on the per-agent results. Record the most
+    # noteworthy one: a fallback (normalisation failed and higher-risk
+    # defaults were used) outranks an LLM resolution, which outranks the
+    # zero-LLM direct path.
     norm = None
-    norm_obj = getattr(result, "normalisation", None)
-    if norm_obj is not None:
+    per_agent = getattr(result, "per_agent", None) or {}
+    outcomes = [
+        r.normalisation for r in per_agent.values() if getattr(r, "normalisation", None) is not None
+    ]
+    if outcomes:
+        chosen = next(
+            (o for o in outcomes if o.fallback),
+            next((o for o in outcomes if o.used_llm), outcomes[0]),
+        )
         norm = {
-            "used_llm": norm_obj.used_llm,
-            "fallback": norm_obj.fallback,
-            "fields": norm_obj.fields,
+            "used_llm": chosen.used_llm,
+            "fallback": chosen.fallback,
+            "fields": chosen.fields,
         }
     manifest = build_manifest(
         command="generate",
@@ -926,14 +1013,12 @@ def _write_scan_manifest(
     call_log: list[dict[str, Any]] | None = None,
 ) -> None:
     """Write a run manifest for a scan command."""
-    signals = getattr(result, "signals_found", False)
     manifest = build_manifest(
         command="scan",
         config=config,
         model_id=config.model_provider.model,
         token_counts=token_counts,
         call_log=call_log,
-        input_hashes={"signals_found": str(signals).lower()},
     )
     write_manifest(root, manifest)
 

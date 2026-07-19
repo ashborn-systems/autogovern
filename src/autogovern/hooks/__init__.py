@@ -43,6 +43,10 @@ def install_pre_commit_hook(root: Path, *, local_enforce: bool = False) -> str:
     The pre-commit hook is warning-only and never blocks (spec requirement).
     When ``local_enforce`` is True, also installs a pre-push hook that runs
     the full ``check`` (LLM included) and blocks on failure.
+
+    An existing hook with different content is never silently clobbered: it
+    is backed up to ``<hook>.autogovern-backup`` first, and the message says
+    so. Re-installing over our own hook is a clean no-op rewrite.
     """
     git_dir = _find_git_dir(root)
     if git_dir is None:
@@ -51,20 +55,37 @@ def install_pre_commit_hook(root: Path, *, local_enforce: bool = False) -> str:
     hooks_dir = git_dir / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
-    # Pre-commit hook (warning-only).
-    pc_path = hooks_dir / "pre-commit"
-    pc_path.write_text(_PRE_COMMIT_HOOK_CONTENT)
-    pc_path.chmod(0o755)
+    messages: list[str] = []
 
-    messages = ["pre-commit hook: installed (warning-only)"]
+    # Pre-commit hook (warning-only).
+    backup = _write_hook(hooks_dir / "pre-commit", _PRE_COMMIT_HOOK_CONTENT)
+    messages.append("pre-commit hook: installed (warning-only)")
+    if backup is not None:
+        messages.append(f"existing hook backed up to {backup.name}")
 
     if local_enforce:
-        pp_path = hooks_dir / "pre-push"
-        pp_path.write_text(_PRE_PUSH_HOOK_CONTENT)
-        pp_path.chmod(0o755)
+        backup = _write_hook(hooks_dir / "pre-push", _PRE_PUSH_HOOK_CONTENT)
         messages.append("pre-push hook: installed (--local-enforce, full check)")
+        if backup is not None:
+            messages.append(f"existing hook backed up to {backup.name}")
 
     return "; ".join(messages)
+
+
+def _write_hook(path: Path, content: str) -> Path | None:
+    """Write a hook file, backing up a pre-existing different one first.
+
+    Returns the backup path when a backup was made, else None.
+    """
+    backup: Path | None = None
+    if path.is_file():
+        existing = path.read_text(encoding="utf-8", errors="replace")
+        if existing != content and "autogovern" not in existing:
+            backup = path.with_name(path.name + ".autogovern-backup")
+            backup.write_text(existing, encoding="utf-8")
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+    return backup
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +132,8 @@ jobs:
           {api_key_env}: ${{{{ secrets.{api_key_env} }}}}
 """
 
+# Note: Bitbucket has no per-step env block; the API key is expected as a
+# secured repository variable (the settings path is printed on install).
 BITBUCKET_PIPELINE = """image: python:3.12
 
 pipelines:
@@ -120,8 +143,6 @@ pipelines:
         script:
           - pip install autogovern
           - autogovern check --json
-        env:
-          {api_key_env}: ${api_key_env}
 """
 
 GENERIC_CI_COMMAND = (
@@ -181,7 +202,7 @@ def detect_forge(root: Path) -> str:
     remote_lower = remote.lower()
     if "github.com" in remote_lower:
         return "github"
-    if "forgejo" in remote_lower or "codeberg.org" in remote_lower:
+    if "forgejo" in remote_lower or "codeberg.org" in remote_lower or "gitea" in remote_lower:
         return "forgejo"
     if "bitbucket.org" in remote_lower:
         return "bitbucket"

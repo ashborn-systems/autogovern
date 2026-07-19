@@ -10,7 +10,12 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 
 Write-Host "Installing autogovern..."
-uv tool install autogovern
+# Re-running the installer upgrades an existing installation.
+if (uv tool list 2>$null | Select-String -Pattern '^autogovern ') {
+    uv tool upgrade autogovern
+} else {
+    uv tool install autogovern
+}
 
 if (-not (Get-Command autogovern -ErrorAction SilentlyContinue)) {
     Write-Host ""

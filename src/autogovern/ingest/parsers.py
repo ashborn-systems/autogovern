@@ -40,6 +40,22 @@ _PROVIDER_NPM_DEPS = {
 # Source-level provider imports: ``from <pkg> import ...``.
 _PROVIDER_IMPORT_RE = re.compile(r"from\s+(anthropic|openai|google\.generativeai|ollama)\s+import")
 
+# JS/TS provider imports: ``from '<pkg>'`` or ``require('<pkg>')``.
+_PROVIDER_JS_IMPORT_RE = re.compile(
+    r"""(?:from\s+|require\(\s*)['"](@anthropic-ai/sdk|openai|@google/generative-ai)['"]"""
+)
+
+# Normalisation for provider names discovered via imports. Python package
+# names match their provider; JS scoped packages map to the vendor.
+_PROVIDER_IMPORT_NAMES = {
+    "anthropic": "anthropic",
+    "openai": "openai",
+    "google.generativeai": "google",
+    "ollama": "ollama",
+    "@anthropic-ai/sdk": "anthropic",
+    "@google/generative-ai": "google",
+}
+
 # ---------------------------------------------------------------------------
 # Model configuration patterns
 # ---------------------------------------------------------------------------
@@ -61,6 +77,8 @@ _API_BASE_RE = re.compile(r"""\bapi_base\s*[:=]\s*["'](https?://[^"']+)["']""", 
 # ``os.getenv("X")``.
 _ENV_RE = re.compile(r"""os\.environ(?:\.get)?\s*[\[(]\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""")
 _GETENV_RE = re.compile(r"""os\.getenv\s*\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""")
+# JS/TS: ``process.env.X`` and ``process.env["X"]``.
+_JS_ENV_RE = re.compile(r"""process\.env\s*(?:\.|\[\s*["'])([A-Za-z_][A-Za-z0-9_]*)""")
 
 # Dependency requirement line: ``name>=1.0``, ``name==2``, ``name``.
 _REQUIREMENT_RE = re.compile(
@@ -137,7 +155,9 @@ def parse(discovered: DiscoveredSources) -> ParsedRecords:
     """
     tools = _parse_tools(discovered.signals.mcp_configs)
     dependencies = _parse_dependencies(discovered.signals.manifests)
-    env_vars = _scan_env_vars(discovered.source_files)
+    env_vars = _scan_env_vars(discovered.source_files) + _parse_mcp_env_vars(
+        discovered.signals.mcp_configs
+    )
     model_config = _scan_model_config(discovered.source_files, dependencies)
     project_meta = _parse_project_meta(discovered.signals.manifests)
     return ParsedRecords(
@@ -155,7 +175,13 @@ def parse(discovered: DiscoveredSources) -> ParsedRecords:
 
 
 def _parse_tools(mcp_configs: list[FileSource]) -> list[ToolRecord]:
-    """Extract every tool across all MCP server configs."""
+    """Extract every tool across all MCP server configs.
+
+    Real-world ``.mcp.json`` servers rarely enumerate their tools statically
+    (they carry ``command``/``args``/``env`` instead). A server with no
+    inline ``tools`` array is still a capability grant, so it is recorded
+    as a server-level entry named after the server.
+    """
     tools: list[ToolRecord] = []
     for config in mcp_configs:
         try:
@@ -169,6 +195,7 @@ def _parse_tools(mcp_configs: list[FileSource]) -> list[ToolRecord]:
             server = servers[server_name]
             if not isinstance(server, dict):
                 continue
+            server_tools: list[ToolRecord] = []
             for tool in server.get("tools", []):
                 if not isinstance(tool, dict):
                     continue
@@ -178,8 +205,45 @@ def _parse_tools(mcp_configs: list[FileSource]) -> list[ToolRecord]:
                 description = tool.get("description", "")
                 if not isinstance(description, str):
                     description = ""
-                tools.append(ToolRecord(name=name, description=description, source=config))
+                server_tools.append(ToolRecord(name=name, description=description, source=config))
+            if not server_tools:
+                server_tools.append(
+                    ToolRecord(
+                        name=server_name,
+                        description="MCP server (tools not statically declared)",
+                        source=config,
+                    )
+                )
+            tools.extend(server_tools)
     return tools
+
+
+def _parse_mcp_env_vars(mcp_configs: list[FileSource]) -> list[EnvVarRecord]:
+    """Environment variable names referenced by MCP server ``env`` blocks.
+
+    Server env blocks are a prime secrets surface (API keys, endpoints), so
+    they belong in the permissions surface alongside source-level env vars.
+    """
+    records: list[EnvVarRecord] = []
+    for config in mcp_configs:
+        try:
+            data = json.loads(config.content)
+        except json.JSONDecodeError:
+            continue
+        servers = data.get("mcpServers") if isinstance(data, dict) else None
+        if not isinstance(servers, dict):
+            continue
+        for server_name in sorted(servers):
+            server = servers[server_name]
+            if not isinstance(server, dict):
+                continue
+            env = server.get("env")
+            if not isinstance(env, dict):
+                continue
+            for key in sorted(env):
+                if isinstance(key, str) and key:
+                    records.append(EnvVarRecord(name=key, source=config))
+    return records
 
 
 # ---------------------------------------------------------------------------
@@ -335,10 +399,15 @@ def _scan_model_config(
             if base_match is not None:
                 api_base = base_match.group(1)
         if provider_import is None:
-            import_match = _PROVIDER_IMPORT_RE.search(src.content)
+            import_match = _PROVIDER_IMPORT_RE.search(src.content) or _PROVIDER_JS_IMPORT_RE.search(
+                src.content
+            )
             if import_match is not None:
-                provider_import = import_match.group(1)
+                raw_name = import_match.group(1)
+                provider_import = _PROVIDER_IMPORT_NAMES.get(raw_name, raw_name)
                 provider_source = src
+        if model and temperature and api_base and provider_import:
+            break  # everything found; no need to scan the remaining files
 
     provider = provider_import or provider_from_dependencies(deps)
 
@@ -362,13 +431,14 @@ def _scan_model_config(
 
 
 def _scan_env_vars(source_files: list[FileSource]) -> list[EnvVarRecord]:
-    """Find all environment variable references in source files."""
+    """Find all environment variable references in Python and JS/TS source."""
     seen: set[str] = set()
     records: list[EnvVarRecord] = []
     for src in source_files:  # already sorted by path
         names: list[str] = []
         names.extend(_ENV_RE.findall(src.content))
         names.extend(_GETENV_RE.findall(src.content))
+        names.extend(_JS_ENV_RE.findall(src.content))
         for name in sorted(set(names)):
             if name in seen:
                 continue

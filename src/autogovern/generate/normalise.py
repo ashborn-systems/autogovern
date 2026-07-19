@@ -125,12 +125,17 @@ def normalise_context(
 def _try_direct_resolution(
     agent_context: AgentContext, risk_appetite: str
 ) -> NormalisedContext | None:
-    """Return a NormalisedContext if all three raw values are already canonical."""
+    """Return a NormalisedContext if all three raw values are already canonical.
+
+    Matching is case-insensitive and whitespace-tolerant: "Internal" and
+    " conservative " resolve directly, avoiding a pointless LLM call on
+    every generate for values that are canonical in every way but casing.
+    """
     try:
         return NormalisedContext(
-            deployment_context=DeploymentContext(agent_context.deployment_context.strip()),
-            autonomy_level=AutonomyLevel(agent_context.autonomy_level.strip()),
-            risk_appetite=RiskAppetite(risk_appetite.strip()),
+            deployment_context=DeploymentContext(agent_context.deployment_context.strip().lower()),
+            autonomy_level=AutonomyLevel(agent_context.autonomy_level.strip().lower()),
+            risk_appetite=RiskAppetite(risk_appetite.strip().lower()),
         )
     except ValueError:
         return None

@@ -121,12 +121,17 @@ def test_library_check_headless_profile(tmp_path: Path, config_env: None) -> Non
     profile = autogovern.load_profile(FIXTURE_PROFILE)
 
     # Generate first so there's a lockfile to diff against.
-    from autogovern.ingest import ScannedAgent, ScanResult
+    from autogovern.ingest import ScannedAgent, ScanResult, agent_key
 
     scan_result = ScanResult(
         agents=[
             ScannedAgent(
-                name=profile.name, root=".", profile=profile, card_written=False, card_path=None
+                key=agent_key(".", profile.name),
+                name=profile.name,
+                root=".",
+                profile=profile,
+                card_written=False,
+                card_path=None,
             )
         ],
         root=str(tmp_path),

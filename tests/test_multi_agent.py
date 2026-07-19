@@ -117,10 +117,11 @@ def test_multi_agent_generate_creates_per_agent_dirs(multi_repo: Path) -> None:
 
     gov = multi_repo / "governance"
     assert (gov / "REGISTER.md").is_file()
-    assert (gov / "billing-agent" / "system-card.md").is_file()
-    assert (gov / "support-agent" / "system-card.md").is_file()
-    assert (gov / "billing-agent" / "profile.lock").is_file()
-    assert (gov / "support-agent" / "profile.lock").is_file()
+    # Nested agents key by their root path: agents/billing-agent -> agents-billing-agent.
+    assert (gov / "agents-billing-agent" / "system-card.md").is_file()
+    assert (gov / "agents-support-agent" / "system-card.md").is_file()
+    assert (gov / "agents-billing-agent" / "profile.lock").is_file()
+    assert (gov / "agents-support-agent" / "profile.lock").is_file()
 
 
 def test_multi_agent_register_lists_both_agents(multi_repo: Path) -> None:

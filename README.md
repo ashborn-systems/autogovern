@@ -85,7 +85,36 @@ autogovern generate --profile agent-profile.json
 
 # Check against a headless profile
 autogovern check --profile agent-profile.json
+
+# Or pipe the profile straight in (no temp file)
+cat agent-profile.json | autogovern check --profile -
 ```
+
+## Custom framework packs
+
+The bundled framework pack (templates, knowledge base, style authority, and
+the mapping of documents to their inputs) is data, not code — and you can
+replace it. Point `framework_pack` in `.autogovern/config.yaml` at your own
+pack directory (relative to the repo root, so it travels with the repo):
+
+```yaml
+framework_pack: governance-pack/   # contains pack.yaml + markdown content
+```
+
+or set `AUTOGOVERN_FRAMEWORK_PACK` in vanilla mode. A pack is validated
+when it loads: every file reference and every declared document input is
+checked up front, so a broken pack fails with a message naming the exact
+document and reference — never a crash halfway through generation. Copy the
+bundled pack (`src/autogovern/frameworks/pack.yaml`) as a starting point.
+
+## Reliability
+
+- **Atomic generation** — every document in a run is staged and committed
+  as one batch. If the model provider fails mid-run, nothing is written;
+  the previous document set stays exactly as it was.
+- **Per-agent verdicts** — on multi-agent repos, `check` reports every
+  agent's status in one run (human output and `--json`).
+- **Zero-LLM checks** — a clean `check` makes no model calls at all.
 
 ## Configuration
 

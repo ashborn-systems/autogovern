@@ -19,18 +19,50 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from autogovern.context.defaults import default_agent_context
 from autogovern.detect import DetectionResult, detect_material_change
 from autogovern.frameworks import Pack, load_pack, to_graph_input
 from autogovern.generate import GOVERNANCE_DIR, generate_docs
 from autogovern.generate.lockfile import read_context_lock, read_lockfile
-from autogovern.ingest import ScannedAgent, ScanResult, scan_repo
-from autogovern.models import AgentContext, Config, ContextManifest
+from autogovern.ingest import ScannedAgent, scan_repo
+from autogovern.models import Config, ContextManifest
 from autogovern.provider import ProviderClient
 
 
 @dataclass
+class AgentVerdict:
+    """One agent's verdict within a check run."""
+
+    key: str
+    name: str
+    current: bool
+    score: int = 0
+    band: str = "immaterial"
+    stale_sections: list[str] = field(default_factory=list)
+    changed_fields: list[str] = field(default_factory=list)
+    fixed: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "key": self.key,
+            "name": self.name,
+            "current": self.current,
+            "score": self.score,
+            "band": self.band,
+            "stale_sections": self.stale_sections,
+            "changed_fields": self.changed_fields,
+            "fixed": self.fixed,
+        }
+
+
+@dataclass
 class CheckResult:
-    """The outcome of a check run."""
+    """The outcome of a check run.
+
+    The top-level fields describe the worst agent (the one that decides the
+    exit code); ``per_agent`` carries every agent's individual verdict so
+    multi-agent repos see the full picture in one run.
+    """
 
     current: bool
     score: int = 0
@@ -41,6 +73,7 @@ class CheckResult:
     fixed: bool = False
     strict: bool = False
     detection: DetectionResult | None = None
+    per_agent: list[AgentVerdict] = field(default_factory=list)
 
     @property
     def exit_code(self) -> int:
@@ -67,6 +100,7 @@ class CheckResult:
             "changed_fields": self.changed_fields,
             "remediation": self.remediation,
             "fixed": self.fixed,
+            "agents": [v.to_dict() for v in self.per_agent],
         }
 
 
@@ -88,56 +122,90 @@ def run_check(
     pack = pack or load_pack()
     governance_dir = root / GOVERNANCE_DIR
 
-    scan_result = scan_repo(root, config, provider=provider, write_card=False)
+    # The lock resolver lets the scanner reuse locked LLM summaries for
+    # agents whose free-text sources are unchanged: a clean check then
+    # makes zero LLM calls, as the spec requires.
+    scan_result = scan_repo(
+        root,
+        config,
+        provider=provider,
+        write_card=False,
+        lock_resolver=lambda key: read_lockfile(governance_dir / key),
+    )
     if not scan_result.agents:
         return CheckResult(
             current=True,
             remediation="no agent signals found; nothing to check",
         )
 
-    worst: CheckResult | None = None
+    results: list[CheckResult] = []
     for scanned in scan_result.agents:
-        agent_result = _check_one_agent(
+        agent_result = _check_one_agent(governance_dir, config, context, provider, scanned, pack)
+        agent_result.strict = strict
+        results.append(agent_result)
+
+    if fix and any(not r.current for r in results):
+        # One generation pass over the FULL scan result: the engine's
+        # incremental logic regenerates exactly the stale sections per agent
+        # and writes the project-level docs (REGISTER, QUICKSTART, ...) from
+        # the complete agent set. Fixing agent-by-agent would rewrite those
+        # shared docs once per agent, each time seeing only one agent.
+        generate_docs(
             root,
-            governance_dir,
             config,
+            scan_result,
             context,
-            provider,
-            scanned,
-            strict,
-            fix,
-            pack,
-            context_from_file,
+            provider=provider,
+            pack=pack,
+            context_from_file=context_from_file,
         )
+        for r in results:
+            if not r.current:
+                r.fixed = True
+
+    verdicts = [
+        AgentVerdict(
+            key=scanned.key,
+            name=scanned.name,
+            current=r.current,
+            score=r.score,
+            band=r.band,
+            stale_sections=r.stale_sections,
+            changed_fields=r.changed_fields,
+            fixed=r.fixed,
+        )
+        for scanned, r in zip(scan_result.agents, results, strict=True)
+    ]
+
+    worst: CheckResult | None = None
+    for agent_result in results:
         if worst is None or agent_result.exit_code > worst.exit_code:
             worst = agent_result
 
-    return worst or CheckResult(current=True)
+    if worst is None:
+        return CheckResult(current=True)
+    worst.per_agent = verdicts
+    return worst
 
 
 def _check_one_agent(
-    root: Path,
     governance_dir: Path,
     config: Config,
     context: ContextManifest,
     provider: ProviderClient,
     scanned: ScannedAgent,
-    strict: bool,
-    fix: bool,
     pack: Pack,
-    context_from_file: bool,
 ) -> CheckResult:
     """Check one agent against its lockfile."""
-    slug = _slug(scanned.name)
-    agent_gov_dir = governance_dir / slug
+    agent_gov_dir = governance_dir / scanned.key
     current_profile = scanned.profile
 
     locked_profile = read_lockfile(agent_gov_dir)
     locked_context = read_context_lock(agent_gov_dir)
 
     # Build this agent's context for the diff (project + this agent's portion).
-    agent_context = context.agents.get(scanned.name, _default_agent_context())
-    agent_manifest = ContextManifest(project=context.project, agents={scanned.name: agent_context})
+    agent_context = context.agents.get(scanned.key, default_agent_context())
+    agent_manifest = ContextManifest(project=context.project, agents={scanned.key: agent_context})
 
     detection = detect_material_change(
         changed_files=[],
@@ -159,7 +227,7 @@ def _check_one_agent(
     ]
     stale_sections = _stale_sections(changed_fields, pack)
 
-    result = CheckResult(
+    return CheckResult(
         current=False,
         score=materiality.score,
         band=materiality.band,
@@ -169,22 +237,7 @@ def _check_one_agent(
             f"autogovern generate  # regenerate: {', '.join(stale_sections) or 'affected sections'}"
         ),
         detection=detection,
-        strict=strict,
     )
-
-    if fix:
-        generate_docs(
-            root,
-            config,
-            ScanResult(agents=[scanned], root=str(root)),
-            context,
-            provider=provider,
-            pack=pack,
-            context_from_file=context_from_file,
-        )
-        result.fixed = True
-
-    return result
 
 
 def _stale_sections(changed_fields: list[str], pack: Pack) -> list[str]:
@@ -197,19 +250,4 @@ def _stale_sections(changed_fields: list[str], pack: Pack) -> list[str]:
     return sorted(sections)
 
 
-def _slug(name: str) -> str:
-    """Slugify an agent name for use as a directory name."""
-    return name.lower().replace(" ", "-").replace("/", "-").strip(".")
-
-
-def _default_agent_context() -> AgentContext:
-    """The default AgentContext for an agent not in the context manifest."""
-    return AgentContext(
-        deployment_context="internal",
-        autonomy_level="human-in-the-loop",
-        intended_users="internal developers",
-        oversight_model="human reviews agent outputs before acting on them",
-    )
-
-
-__all__ = ["CheckResult", "run_check"]
+__all__ = ["AgentVerdict", "CheckResult", "run_check"]

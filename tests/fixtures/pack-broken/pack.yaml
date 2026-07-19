@@ -1,0 +1,23 @@
+# Pack with a deliberately invalid declared input.
+pack:
+  id: broken-pack
+  version: 1.0.0
+  source: test fixture
+  licence: Apache-2.0
+
+frameworks:
+  - id: broken
+    path: broken/
+    role: primary
+    files:
+      knowledge_base: broken/knowledge.md
+
+style_authority: broken/knowledge.md#style
+
+document_feeds:
+  system-card.md:
+    templates: [broken/knowledge.md#card-template]
+    knowledge: []
+    profile_inputs:
+      - profile.governance.nonexistent_field
+    context_inputs: []

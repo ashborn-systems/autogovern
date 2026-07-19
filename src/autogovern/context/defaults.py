@@ -8,6 +8,7 @@ without creating a cycle.
 from __future__ import annotations
 
 from autogovern.models import (
+    AgentContext,
     ContextManifest,
     ProjectContext,
 )
@@ -34,4 +35,18 @@ def default_context() -> ContextManifest:
     )
 
 
-__all__ = ["default_context"]
+def default_agent_context() -> AgentContext:
+    """The fallback AgentContext for an agent absent from the context manifest.
+
+    Conservative defaults, applied during ``generate``/``check`` to agents
+    discovered after ``init`` ran (or never captured by the wizard).
+    """
+    return AgentContext(
+        deployment_context="internal",
+        autonomy_level="human-in-the-loop",
+        intended_users="internal developers",
+        oversight_model="human reviews agent outputs before acting on them",
+    )
+
+
+__all__ = ["default_agent_context", "default_context"]

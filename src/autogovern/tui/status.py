@@ -50,17 +50,27 @@ def _docs_state(root: Path) -> Text:
     gov_dir = root / GOVERNANCE_DIR
     if not gov_dir.is_dir():
         return dim("not initialised")
-    docs = list(gov_dir.glob("*.md"))
+    docs = list(gov_dir.rglob("*.md"))
     if not docs:
         return dim("not initialised")
     return primary(f"{len(docs)} document(s) in governance/")
 
 
 def _lock_state(root: Path) -> Text:
-    profile_lock = root / GOVERNANCE_DIR / "profile.lock"
-    if not profile_lock.is_file():
+    """Report lockfile presence honestly: what exists, not what matches.
+
+    Lockfiles live per agent at ``governance/<agent-key>/profile.lock``.
+    Verifying they match the working tree requires a full scan (that is
+    what ``check`` does); the status view is a sub-500ms glance and only
+    claims what it can see.
+    """
+    gov_dir = root / GOVERNANCE_DIR
+    if not gov_dir.is_dir():
         return dim("not written")
-    return primary("matches working tree")
+    locks = list(gov_dir.glob("*/profile.lock"))
+    if not locks:
+        return dim("not written")
+    return primary(f"written for {len(locks)} agent(s); run `check` to verify currency")
 
 
 def _last_run(root: Path) -> Text:

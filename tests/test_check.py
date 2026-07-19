@@ -83,6 +83,12 @@ def _mock_provider_factory(config):
     return make_mock_provider(config)
 
 
+def _smart_provider_factory(config):
+    from tests.conftest import make_smart_mock_provider
+
+    return make_smart_mock_provider(config)
+
+
 # ---------------------------------------------------------------------------
 # Acceptance criterion 2: edit tool → check fails → check --fix → check passes
 # ---------------------------------------------------------------------------
@@ -140,12 +146,13 @@ def test_check_immaterial_change_passes(
     monkeypatch.chdir(repo)
     import autogovern.cli as cli_mod
 
-    monkeypatch.setattr(cli_mod, "build_provider", _mock_provider_factory)
+    monkeypatch.setattr(cli_mod, "build_provider", _smart_provider_factory)
 
     result = runner.invoke(app, ["generate", str(repo)])
     assert result.exit_code == 0, result.output
 
-    # Dependency-only change: no deterministic rule fires, score 0.
+    # Dependency-only change: no deterministic rule fires, so the semantic
+    # scorer resolves it (mocked low score → immaterial).
     pyproject = repo / "pyproject.toml"
     pyproject.write_text(
         pyproject.read_text().replace("dependencies = [", 'dependencies = [\n    "requests>=2",')

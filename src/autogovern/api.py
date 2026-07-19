@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from autogovern.check import CheckResult, run_check
+from autogovern.check import AgentVerdict, CheckResult, run_check
 from autogovern.generate import generate_docs
 from autogovern.generate.lockfile import read_context_lock, read_lockfile
 from autogovern.ingest import ScannedAgent, ScanResult, scan_repo
@@ -23,12 +23,14 @@ from autogovern.models import AgentProfile, Config, ContextManifest
 from autogovern.provider import ProviderClient, build_provider
 
 __all__ = [
+    "AgentVerdict",
     "CheckResult",
     "ScanResult",
     "build_provider",
     "check",
     "generate_docs",
     "load_profile",
+    "load_profile_text",
     "scan",
 ]
 
@@ -44,9 +46,14 @@ def scan(root: Path, config: Config, *, provider: ProviderClient | None = None) 
 
 def load_profile(path: Path) -> AgentProfile:
     """Load an AgentProfile from a JSON file (headless input)."""
+    return load_profile_text(path.read_text(encoding="utf-8"))
+
+
+def load_profile_text(text: str) -> AgentProfile:
+    """Load an AgentProfile from a JSON string (file contents or stdin)."""
     import json
 
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(text)
     return AgentProfile.model_validate(raw)
 
 
@@ -99,23 +106,21 @@ def _check_headless(
     degenerate case of the multi-agent model. The lockfile is read from the
     agent's governance subdirectory.
     """
-    from autogovern.check import _slug, _stale_sections
+    from autogovern.check import _stale_sections
+    from autogovern.context.defaults import default_agent_context
     from autogovern.detect import detect_material_change
-    from autogovern.frameworks import load_pack
+    from autogovern.frameworks import load_pack, resolve_pack_dir
+    from autogovern.ingest import agent_key
 
-    pack = load_pack()
-    slug = _slug(current_profile.name)
-    agent_gov_dir = root / "governance" / slug
+    pack = load_pack(resolve_pack_dir(config.framework_pack, root))
+    key = agent_key(".", current_profile.name)
+    agent_gov_dir = root / "governance" / key
     locked_profile = read_lockfile(agent_gov_dir)
     locked_context = read_context_lock(agent_gov_dir)
 
     # Build a per-agent context for the diff (project + this agent's portion).
-    from autogovern.check import _default_agent_context
-
-    agent_context = context.agents.get(current_profile.name, _default_agent_context())
-    agent_manifest = ContextManifest(
-        project=context.project, agents={current_profile.name: agent_context}
-    )
+    agent_context = context.agents.get(key, default_agent_context())
+    agent_manifest = ContextManifest(project=context.project, agents={key: agent_context})
 
     detection = detect_material_change(
         changed_files=[],
@@ -129,7 +134,11 @@ def _check_headless(
     )
 
     if not detection.changed or detection.materiality is None:
-        return CheckResult(current=True, detection=detection)
+        return CheckResult(
+            current=True,
+            detection=detection,
+            per_agent=[AgentVerdict(key=key, name=current_profile.name, current=True)],
+        )
 
     materiality = detection.materiality
     changed_fields = [
@@ -152,6 +161,7 @@ def _check_headless(
 
     if fix:
         scanned = ScannedAgent(
+            key=key,
             name=current_profile.name,
             root=".",
             profile=current_profile,
@@ -170,4 +180,16 @@ def _check_headless(
         )
         result.fixed = True
 
+    result.per_agent = [
+        AgentVerdict(
+            key=key,
+            name=current_profile.name,
+            current=False,
+            score=result.score,
+            band=result.band,
+            stale_sections=stale_sections,
+            changed_fields=changed_fields,
+            fixed=result.fixed,
+        )
+    ]
     return result

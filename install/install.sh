@@ -31,8 +31,13 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 # Install autogovern as a uv tool (user-local, idempotent).
+# Re-running the installer upgrades an existing installation.
 echo "Installing autogovern..."
-uv tool install autogovern
+if uv tool list 2>/dev/null | grep -q '^autogovern '; then
+    uv tool upgrade autogovern
+else
+    uv tool install autogovern
+fi
 
 # Verify the binary is on PATH.
 if ! command -v autogovern >/dev/null 2>&1; then

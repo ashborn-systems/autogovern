@@ -19,6 +19,7 @@ from autogovern.detect.diff import FieldDiff, ProfileDiff, diff_context, diff_pr
 from autogovern.detect.heuristic import HeuristicResult, heuristic_pass
 from autogovern.detect.scorer import (
     build_result,
+    is_deterministically_scored,
     score_deterministic,
     score_semantic,
 )
@@ -107,12 +108,16 @@ def detect_material_change(
     criteria = score_deterministic(diff)
     llm_calls = 0
 
-    # Semantic pass only if there are semantic fields and no deterministic hit.
-    if diff.semantic_fields and not criteria and provider is not None:
-        semantic = score_semantic(diff, provider)
+    # The remainder: every field no deterministic rule covers (prompt content,
+    # description, name, version, ...). Per the spec, unresolved diffs are
+    # scored 0-100 by the semantic pass — never silently treated as score 0.
+    unresolved = [fd for fd in diff.fields if not is_deterministically_scored(fd)]
+
+    if unresolved and not criteria and provider is not None:
+        semantic = score_semantic(ProfileDiff(fields=unresolved), provider)
         criteria.append(semantic)
         llm_calls = 1
-    elif diff.semantic_fields and not criteria and provider is None:
+    elif unresolved and not criteria and provider is None:
         # Degrade: no provider, assume material.
         criteria.append(
             MaterialityCriterion(

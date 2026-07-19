@@ -48,9 +48,8 @@ def render_document(frontmatter: dict[str, Any], body: str) -> str:
     """Render a document with deterministic frontmatter.
 
     Keys are sorted so output is byte-stable across runs (idempotence gate).
-    The body is appended unchanged; a leading newline is normalised so the
-    document has exactly one blank line between the closing delimiter and the
-    first body line.
+    The body's leading newlines are stripped so the first body line follows
+    the closing delimiter directly.
     """
     fm = yaml.safe_dump(frontmatter, sort_keys=True, default_flow_style=False).strip()
     normalised_body = body.lstrip("\n")
