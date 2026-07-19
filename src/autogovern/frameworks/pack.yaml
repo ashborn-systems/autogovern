@@ -1,12 +1,13 @@
 # Framework pack index for autogovern.
 # The generation engine treats this file and everything it references as data.
-# Content in agentic-governance/ and agentic-business-case/ is copied verbatim
-# from its source skills.
+# Content in agentic-governance/ is copied verbatim from the source skill,
+# with the viability checklist and rule of ten inlined from the
+# agentic-business-case skill (sections 12 and 13 of governance-frameworks.md).
 
 pack:
   id: agentic-governance
   version: 1.1.0
-  source: agentic-governance skill; selected references from the agentic-business-case skill
+  source: agentic-governance skill
   licence: inherit-project
 
 frameworks:
@@ -14,21 +15,11 @@ frameworks:
     path: agentic-governance/
     role: primary
     files:
-      knowledge_base: agentic-governance/governance-frameworks.md   # controls, risk vectors, testing methods, metrics, regulatory principles
+      knowledge_base: agentic-governance/governance-frameworks.md   # controls, risk vectors, testing methods, metrics, regulatory principles, viability checklist, rule of ten
       artefact_templates: agentic-governance/governance-artefacts.md # authoritative section templates for generated documents
       runbook: agentic-governance/ongoing-governance-runbook.md      # perpetual-operation loop (enterprise scheduled-drift seam)
       output_rules: agentic-governance/formatting.md                 # production rules: single currency, calculation blocks, prose notes
       skill_source: agentic-governance/skill-source.md               # original SKILL.md, kept for provenance and writing rules
-
-  - id: agentic-business-case
-    path: agentic-business-case/
-    role: supplementary
-    files:
-      quality_rubric: agentic-business-case/rubric.md                # quality rubric, kept as reference data for future quality-feedback features; see scope note below
-      business_frameworks: agentic-business-case/frameworks.md       # sections 1-8 only; see scope note below
-    scope_notes:
-      - "rubric.md: only the 'Risk, governance, and responsible deployment', 'Realism, feasibility, and judgement', and 'Cross-cutting quality signals' sections apply. Slide and deck sections are out of scope for this tool."
-      - "frameworks.md: sections 1-8 (business frameworks) are in scope as supplementary inputs. Sections 9-16 duplicate the governance knowledge base; agentic-governance/governance-frameworks.md is authoritative and wins on any conflict."
 
 # Style authority: the writing rules section of the primary framework's
 # skill-source.md governs every generation prompt template. It is a general
@@ -47,8 +38,8 @@ document_feeds:
     knowledge:
       - agentic-governance/governance-frameworks.md#3                # three layers of autonomy
       - agentic-governance/governance-frameworks.md#10               # MCP and A2A
-      - agentic-business-case/frameworks.md#3                        # 7-point agentic viability checklist (intended-purpose justification)
-      - agentic-business-case/frameworks.md#4                        # rule of ten (intended-purpose justification)
+      - agentic-governance/governance-frameworks.md#12               # 7-point agentic viability checklist (intended-purpose justification)
+      - agentic-governance/governance-frameworks.md#13               # rule of ten (intended-purpose justification)
     profile_inputs:
       - profile.name
       - profile.description

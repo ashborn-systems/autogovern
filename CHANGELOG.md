@@ -3,6 +3,16 @@
 All notable changes to autogovern are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.2] - 2026-07-19
+
+### Changed
+- Removed the `agentic-business-case` framework from the bundled pack. Its
+  two live sections (the 7-point agentic viability checklist and the rule of
+  ten) are inlined as sections 12 and 13 of `governance-frameworks.md`. The
+  `rubric.md` and 14 unused sections were deleted. The pack now ships a
+  single framework (`agentic-governance`) with no scope-note duplication to
+  manage.
+
 ## [0.1.1] - 2026-07-19
 
 ### Changed

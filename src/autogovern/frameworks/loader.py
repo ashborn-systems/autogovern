@@ -117,7 +117,7 @@ class SectionDependencyGraph:
 
 @dataclass(frozen=True)
 class FrameworkEntry:
-    """One framework in the pack (e.g. agentic-governance, agentic-business-case)."""
+    """One framework in the pack (e.g. agentic-governance)."""
 
     id: str
     role: str

@@ -104,11 +104,13 @@ def test_data_protection_has_no_template_but_has_knowledge(pack: Pack) -> None:
     assert "regulatory" in feed.knowledge[0].title.lower()
 
 
-def test_scope_notes_collected(pack: Pack) -> None:
-    """Framework scope notes are surfaced on the loaded pack."""
-    joined = "\n".join(pack.scope_notes)
-    assert "rubric.md" in joined
-    assert "frameworks.md" in joined
+def test_scope_notes_empty_after_business_case_removal(pack: Pack) -> None:
+    """The bundled pack has no scope notes after agentic-business-case removal.
+
+    The business-case framework (with its rubric and frameworks scope notes)
+    was removed; its two live sections were inlined into governance-frameworks.md.
+    """
+    assert pack.scope_notes == []
 
 
 # ---------------------------------------------------------------------------

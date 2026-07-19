@@ -17,6 +17,8 @@ Apply these alongside `governance-artefacts.md` (the documentation templates) an
 9. Accountability and ownership
 10. MCP and A2A
 11. Pre-deployment checklist
+12. The 7-point agentic viability checklist
+13. The rule of ten
 
 ---
 
@@ -137,6 +139,22 @@ An eight-point verification before an agent is built or deployed.
 6. Tested against baseline, edge cases, and failure states in a secure environment.
 7. Monitoring, human oversight, and rollback procedures established.
 8. A deployment blueprint defines how the agent is governed, monitored, and operated across its lifecycle.
+
+## 12. The 7-point agentic viability checklist
+
+A strong candidate for agentic automation satisfies five or more of the following. Score the use case explicitly in the system card, naming any miss.
+
+1. **Multi-step workflows** — gathering, deciding, acting across stages (single-step tasks should use a prompt, not an agent).
+2. **Information-heavy tasks** — large volumes of text or unstructured data to extract, summarise, categorise.
+3. **Clear but flexible decision rules** — judgement within recognisable patterns, between deterministic (use traditional automation) and ambiguous (keep human).
+4. **High variation in input data and outcomes** — diverse inputs over a consistent underlying process.
+5. **Digital inputs and outputs** — no physical or offline steps blocking end-to-end automation.
+6. **Access to tools or systems** — CRMs, databases, APIs. Without these, the agent only generates text.
+7. **High volume or repetition** — frequency drives ROI and improvement opportunity.
+
+## 13. The rule of ten
+
+Will the AI-enabled task deliver a 10× order-of-magnitude improvement: 10× lower cost, 10× faster execution, or 10× greater capacity? The threshold is not absolute, but if the deployment cannot credibly approach it, the complexity overhead rarely justifies the agent. Anthropic's guidance applies: find the simplest solution possible, because agentic systems trade latency and cost for task performance. State which 10× vector the deployment targets and quantify it in the system card.
 
 ## References
 
