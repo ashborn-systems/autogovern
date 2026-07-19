@@ -51,8 +51,10 @@ def test_cli_scan_json_basic(tmp_path: Path, provider_factory, monkeypatch) -> N
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["signals_found"] is True
-    assert data["card_written"] is True
-    profile = data["profile"]
+    assert len(data["agents"]) == 1
+    agent = data["agents"][0]
+    assert agent["card_written"] is True
+    profile = agent["profile"]
     assert profile["name"] == "support-triage-agent"
     tool_perms = [
         p["detail"].split(" — ")[0]
@@ -98,7 +100,7 @@ def test_cli_scan_plain_no_signals(tmp_path: Path, provider_factory, monkeypatch
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["signals_found"] is False
-    assert data["profile"] is None
+    assert data["agents"] == []
 
     # Human form also states it clearly.
     result_human = runner.invoke(app, ["scan", str(plain), "--config", str(config)])
@@ -118,7 +120,8 @@ def test_cli_scan_carded_no_write(tmp_path: Path, provider_factory, monkeypatch)
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
-    assert data["card_written"] is False
+    assert len(data["agents"]) == 1
+    assert data["agents"][0]["card_written"] is False
     assert card_path.read_text(encoding="utf-8") == before
 
 

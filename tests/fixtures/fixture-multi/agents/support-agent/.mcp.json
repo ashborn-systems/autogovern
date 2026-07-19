@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ticketing": {
+      "tools": [{"name": "create_ticket", "description": "Create a support ticket."}]
+    }
+  }
+}

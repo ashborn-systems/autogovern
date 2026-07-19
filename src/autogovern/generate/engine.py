@@ -44,11 +44,13 @@ from autogovern.generate.lockfile import (
 from autogovern.generate.normalise import normalise_context
 from autogovern.generate.prompts import build_section_messages
 from autogovern.generate.writer import write_if_changed
+from autogovern.ingest import ScannedAgent, ScanResult
 from autogovern.models import (
+    AgentContext,
     AgentProfile,
     Config,
     ContextManifest,
-    MaterialityResult,
+    NormalisationOutcome,
     NormalisedContext,
 )
 from autogovern.provider import ProviderClient
@@ -79,51 +81,95 @@ LLM_DOCS = [
 
 
 @dataclass
-class GenerationResult:
-    """Outcome of a generate run, for the CLI to print and tests to assert."""
+class AgentGenerationResult:
+    """Outcome of generating docs for one agent."""
 
+    agent_name: str
+    agent_slug: str
     governance_dir: Path
     regenerated: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     llm_call_count: int = 0
     written_files: list[Path] = field(default_factory=list)
     pack_version: str = ""
-    # doc -> (old doc_version or None, new doc_version, bump level)
     version_changes: dict[str, tuple[str | None, str, str]] = field(default_factory=dict)
+    regeneration_reasons: dict[str, str] = field(default_factory=dict)
+    normalisation: NormalisationOutcome | None = None
 
     @property
     def changed(self) -> bool:
         return bool(self.regenerated)
 
 
+@dataclass
+class GenerationResult:
+    """Outcome of a generate run across all agents in a project.
+
+    The project-level result aggregates per-agent results. Token counts and
+    LLM call counts sum across agents.
+    """
+
+    governance_dir: Path
+    per_agent: dict[str, AgentGenerationResult] = field(default_factory=dict)
+    pack_version: str = ""
+    register_written: bool = False
+    written_files: list[Path] = field(default_factory=list)
+
+    @property
+    def changed(self) -> bool:
+        return any(r.changed for r in self.per_agent.values())
+
+    @property
+    def regenerated(self) -> list[str]:
+        """All regenerated docs across agents, as ``agent/doc`` pairs."""
+        return [f"{r.agent_slug}/{doc}" for r in self.per_agent.values() for doc in r.regenerated]
+
+    @property
+    def skipped(self) -> list[str]:
+        return [f"{r.agent_slug}/{doc}" for r in self.per_agent.values() for doc in r.skipped]
+
+    @property
+    def llm_call_count(self) -> int:
+        return sum(r.llm_call_count for r in self.per_agent.values())
+
+    @property
+    def regeneration_reasons(self) -> dict[str, str]:
+        return {
+            f"{r.agent_slug}/{doc}": reason
+            for r in self.per_agent.values()
+            for doc, reason in r.regeneration_reasons.items()
+        }
+
+    @property
+    def version_changes(self) -> dict[str, tuple[str | None, str, str]]:
+        return {
+            f"{r.agent_slug}/{doc}": change
+            for r in self.per_agent.values()
+            for doc, change in r.version_changes.items()
+        }
+
+
 def generate_docs(
     root: Path,
     config: Config,
-    profile: AgentProfile,
+    scan_result: ScanResult,
     context: ContextManifest,
     *,
     provider: ProviderClient,
     pack: Pack | None = None,
     context_from_file: bool = True,
-    materiality: MaterialityResult | None = None,
 ) -> GenerationResult:
-    """Generate or incrementally update the governance document set.
+    """Generate or incrementally update governance docs for all agents.
 
-    Writes into ``<root>/governance/``. Only sections whose input hash changed
-    are re-rendered (one LLM call each); the rest are left untouched. The
-    profile and context lockfiles are written on every run (content-addressed,
-    so a no-op when unchanged).
+    Writes into ``<root>/governance/``. Each agent gets its own subdirectory
+    (``governance/<agent-slug>/``) with its doc set and lockfiles. The project
+    level holds ``REGISTER.md``, ``QUICKSTART.md``, ``ATTENTION.md``, and
+    ``CHANGELOG.md``.
 
-    Each regenerated document's ``doc_version`` is semver-bumped according to
-    the significance of the change that caused it (see
-    :mod:`autogovern.versioning`); first generation stamps ``0.1.0``.
-
-    When ``context_from_file`` is False (vanilla mode), ATTENTION.md notes
-    that docs are generic because no context manifest was loaded.
-
-    ``materiality`` is the detection result when regeneration follows a
-    ``check --fix``; it is recorded in the changelog entry. None means the
-    run was not scored (plain ``generate``).
+    Only sections whose input hash changed are re-rendered (one LLM call
+    each); the rest are left untouched. Each agent's profile and context
+    lockfiles are written on every run (content-addressed, no-op when
+    unchanged).
 
     The provider lifecycle is owned by the caller; this function does not
     close it.
@@ -133,18 +179,61 @@ def generate_docs(
     governance_dir.mkdir(parents=True, exist_ok=True)
 
     result = GenerationResult(governance_dir=governance_dir, pack_version=pack.version)
+
+    for scanned in scan_result.agents:
+        agent_result = _generate_for_agent(
+            root, governance_dir, config, scanned, context, provider, pack, context_from_file
+        )
+        result.per_agent[scanned.name] = agent_result
+        result.written_files.extend(agent_result.written_files)
+
+    # Project-level docs: register, quickstart, attention, changelog.
+    _write_project_docs(governance_dir, config, pack, scan_result, result, context_from_file)
+    return result
+
+
+def _generate_for_agent(
+    root: Path,
+    governance_dir: Path,
+    config: Config,
+    scanned: ScannedAgent,
+    context: ContextManifest,
+    provider: ProviderClient,
+    pack: Pack,
+    context_from_file: bool,
+) -> AgentGenerationResult:
+    """Generate docs for one agent into its own governance subdirectory."""
+    from autogovern.observability import span as tracing_span
+
+    agent_slug = _slug(scanned.name)
+    agent_gov_dir = governance_dir / agent_slug
+    agent_gov_dir.mkdir(parents=True, exist_ok=True)
+
+    result = AgentGenerationResult(
+        agent_name=scanned.name,
+        agent_slug=agent_slug,
+        governance_dir=agent_gov_dir,
+        pack_version=pack.version,
+    )
+
+    profile = scanned.profile
+    # Resolve this agent's context (from the manifest's agents dict, or default).
+    agent_context = context.agents.get(scanned.name, _default_agent_context())
+    # Build a manifest with project + this agent's context for generation.
+    agent_manifest = ContextManifest(project=context.project, agents={scanned.name: agent_context})
+
     file_hashes = profile_file_hashes(profile)
     enabled = _enabled_documents(config)
     timestamp = now_iso()
-    # Bump-level diff uses the raw context (what the user typed) so any
-    # free-text edit is detected, even if the normalised result is unchanged.
-    bump_levels = _compute_bump_levels(governance_dir, profile, context, pack)
+    bump_levels, changed_fields = _compute_bump_levels(agent_gov_dir, profile, agent_manifest, pack)
 
-    # Normalise free-text context fields once. The normalised copy feeds
-    # section prompts and section hashes (so only meaning-changes trigger
-    # regeneration); the raw context feeds the lockfile and diff.
-    normalised = normalise_context(context, provider)
-    context_for_prompts = _apply_normalisation(context, normalised)
+    # Normalise this agent's free-text context fields.
+    with tracing_span("normalise", attributes={"agent": scanned.name}):
+        normalised, normalisation_outcome = normalise_context(
+            agent_context, context.project.risk_appetite, provider
+        )
+    context_for_prompts = _apply_normalisation(agent_manifest, normalised)
+    result.normalisation = normalisation_outcome
 
     for doc in LLM_DOCS:
         if doc not in enabled:
@@ -153,7 +242,7 @@ def generate_docs(
         if feed is None:  # pragma: no cover - pack and config should agree
             continue
         _maybe_regenerate_llm_doc(
-            governance_dir / doc,
+            agent_gov_dir / doc,
             doc,
             feed,
             profile,
@@ -164,13 +253,12 @@ def generate_docs(
             result,
             timestamp,
             bump_levels,
+            changed_fields,
+            agent_name=scanned.name,
         )
 
-    _write_engine_docs(
-        governance_dir, config, pack, profile, result, timestamp, context_from_file, materiality
-    )
-    write_lockfile(governance_dir, profile)
-    write_context_lock(governance_dir, context)
+    write_lockfile(agent_gov_dir, profile)
+    write_context_lock(agent_gov_dir, agent_manifest)
     return result
 
 
@@ -179,22 +267,23 @@ def _compute_bump_levels(
     profile: AgentProfile,
     context: ContextManifest,
     pack: Pack,
-) -> dict[str, BumpLevel] | None:
-    """Per-document version bump levels, or None on first generation.
+) -> tuple[dict[str, BumpLevel] | None, list[str]]:
+    """Per-document version bump levels plus changed field names.
 
-    Diffs the locked state (profile + context) against the current inputs and
-    classifies each affected document via the dependency graph. None means no
-    lockfile exists, so every document starts at ``0.1.0``.
+    Returns (bump_levels, changed_fields). bump_levels is None on first
+    generation (no lockfile); changed_fields is the list of dotted field paths
+    that differed between the locked state and current inputs.
     """
     locked_profile = read_lockfile(governance_dir)
     if locked_profile is None:
-        return None
+        return None, []
     diff = diff_profiles(locked_profile, profile)
     locked_context = read_context_lock(governance_dir)
     if locked_context is not None:
         ctx_diff = diff_context(locked_context, context)
         diff.fields.extend(ctx_diff.fields)
-    return doc_bump_levels(diff.fields, pack.graph)
+    changed_fields = [fd.field for fd in diff.fields]
+    return doc_bump_levels(diff.fields, pack.graph), changed_fields
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +300,14 @@ def _maybe_regenerate_llm_doc(
     provider: ProviderClient,
     pack: Pack,
     file_hashes: dict[str, str],
-    result: GenerationResult,
+    result: AgentGenerationResult,
     timestamp: str,
     bump_levels: dict[str, BumpLevel] | None,
+    changed_fields: list[str] | None = None,
+    *,
+    agent_name: str = "",
 ) -> None:
-    declared = _resolve_declared_inputs(feed, profile, context)
+    declared = _resolve_declared_inputs(feed, profile, context, agent_name=agent_name)
     new_hash = compute_section_hash(declared, [s.content for s in feed.pack_sections], pack.version)
 
     existing_fm = _read_frontmatter(path)
@@ -224,9 +316,14 @@ def _maybe_regenerate_llm_doc(
         return
 
     messages = build_section_messages(doc, feed, declared, pack.style_authority)
-    body = provider.chat(messages)
+    from autogovern.observability import span as tracing_span
+
+    span_attrs = {"section": doc, "agent": agent_name} if agent_name else {"section": doc}
+    with tracing_span(f"generate.{doc}", attributes=span_attrs):
+        body = provider.chat(messages, label=doc)
     result.llm_call_count += 1
     result.regenerated.append(doc)
+    result.regeneration_reasons[doc] = _regeneration_reason(doc, feed, existing_fm, changed_fields)
 
     old_version = _version_string(existing_fm.get("doc_version"))
     new_version, level = _stamped_version(existing_fm.get("doc_version"), doc, bump_levels)
@@ -245,6 +342,30 @@ def _maybe_regenerate_llm_doc(
         result.written_files.append(path)
 
 
+def _regeneration_reason(
+    doc: str,
+    feed: DocumentFeed,
+    existing_fm: dict[str, Any],
+    changed_fields: list[str] | None,
+) -> str:
+    """Why this document is being regenerated.
+
+    Returns the specific field that changed (if identifiable from the diff and
+    the feed's declared inputs), or a general reason (first generation, pack
+    content change) when the trigger is structural rather than field-level.
+    """
+    if not existing_fm or not existing_fm.get("doc_version"):
+        return "first generation"
+    if not changed_fields:
+        return "pack content changed"
+    # Intersect the changed fields with this doc's declared inputs.
+    declared = set(feed.all_inputs)
+    matching = [f for f in changed_fields if f in declared]
+    if matching:
+        return ", ".join(matching)
+    return "input hash changed"
+
+
 def _apply_normalisation(
     context: ContextManifest, normalised: NormalisedContext
 ) -> ContextManifest:
@@ -252,31 +373,40 @@ def _apply_normalisation(
 
     The raw context is preserved for the lockfile and diff; this copy feeds
     section prompts and section hashes so only meaning-changes trigger
-    regeneration.
+    regeneration. The manifest has one agent; that agent's fields are updated.
     """
+    agent_name = next(iter(context.agents), "default")
+    agent_context = context.agents.get(agent_name, _default_agent_context())
     return context.model_copy(deep=True).model_copy(
         update={
             "project": context.project.model_copy(
                 update={"risk_appetite": normalised.risk_appetite.value}
             ),
-            "agent": context.agent.model_copy(
-                update={
-                    "deployment_context": normalised.deployment_context.value,
-                    "autonomy_level": normalised.autonomy_level.value,
-                }
-            ),
+            "agents": {
+                agent_name: agent_context.model_copy(
+                    update={
+                        "deployment_context": normalised.deployment_context.value,
+                        "autonomy_level": normalised.autonomy_level.value,
+                    }
+                )
+            },
         }
     )
 
 
 def _resolve_declared_inputs(
-    feed: DocumentFeed, profile: AgentProfile, context: ContextManifest
+    feed: DocumentFeed, profile: AgentProfile, context: ContextManifest, agent_name: str = ""
 ) -> dict[str, object]:
     declared: dict[str, object] = {}
     for path in feed.profile_inputs:
         declared[path] = extract_input(path, profile, context)
     for path in feed.context_inputs:
-        declared[path] = extract_input(path, profile, context)
+        # Resolve wildcard context.agents.*.field to the specific agent.
+        resolved_path = path
+        if path.startswith("context.agents.*.") and agent_name:
+            field_name = path.split("*.", 1)[1]
+            resolved_path = f"context.agents.{agent_name}.{field_name}"
+        declared[path] = extract_input(resolved_path, profile, context)
     return declared
 
 
@@ -322,44 +452,48 @@ def _stamped_version(
 # ---------------------------------------------------------------------------
 
 
-def _write_engine_docs(
+def _write_project_docs(
     governance_dir: Path,
     config: Config,
     pack: Pack,
-    profile: AgentProfile,
+    scan_result: ScanResult,
     result: GenerationResult,
-    timestamp: str,
     context_from_file: bool,
-    materiality: MaterialityResult | None,
 ) -> None:
-    file_hashes = profile_file_hashes(profile)
+    """Write the project-level docs: register, quickstart, attention, changelog."""
+    timestamp = now_iso()
     common = _Common(
-        agent_version=profile.version,
+        agent_version="project",
         generator_version=_generator_version(),
-        input_hashes=file_hashes,
+        input_hashes={},
         framework_pack_version=pack.version,
+    )
+
+    # REGISTER.md: the agent inventory (always written).
+    register_body = _register_body(scan_result, result)
+    _write_project_doc(
+        governance_dir / "REGISTER.md", "REGISTER.md", register_body, timestamp, common, result
     )
 
     # QUICKSTART: regenerate only if something changed this run.
     if result.changed:
-        body = _quickstart_body(profile, result, context_from_file)
-        _write_engine_doc(
+        body = _quickstart_body(scan_result, result, context_from_file)
+        _write_project_doc(
             governance_dir / "QUICKSTART.md", "QUICKSTART.md", body, timestamp, common, result
         )
 
     # ATTENTION: informational note about context completeness.
     att_body = _attention_body(context_from_file)
-    _write_engine_doc(
+    _write_project_doc(
         governance_dir / "ATTENTION.md", "ATTENTION.md", att_body, timestamp, common, result
     )
 
     # CHANGELOG: append-only, one entry per run that regenerated something.
-    # Disableable via config.documents (QUICKSTART and ATTENTION are not).
     if result.changed and "CHANGELOG.md" in _enabled_documents(config):
-        _append_changelog(governance_dir / "CHANGELOG.md", common, result, timestamp, materiality)
+        _append_changelog(governance_dir / "CHANGELOG.md", common, result, timestamp)
 
 
-def _write_engine_doc(
+def _write_project_doc(
     path: Path,
     doc: str,
     body: str,
@@ -367,14 +501,7 @@ def _write_engine_doc(
     common: _Common,
     result: GenerationResult,
 ) -> None:
-    """Write an engine-generated document when its body changed.
-
-    Comparing bodies (not full content) means an unchanged engine doc keeps
-    its existing frontmatter and ``generated`` timestamp, which is what makes
-    a no-op generate produce zero git diff. A rewrite bumps ``doc_version``
-    by one patch step; the section hash is the body hash (decoupled from the
-    version).
-    """
+    """Write a project-level document when its body changed."""
     existing_fm = _read_frontmatter(path)
     if existing_fm:
         _, existing_body = parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -396,17 +523,35 @@ def _write_engine_doc(
     result.version_changes[doc] = (old_version, new_version, "patch")
 
 
+def _register_body(scan_result: ScanResult, result: GenerationResult) -> str:
+    """The REGISTER.md body: the project's agent inventory."""
+    lines = ["# Agent register", "", "The agents governed in this project.", ""]
+    for agent in scan_result.agents:
+        slug = _slug(agent.name)
+        lines.append(f"## {agent.name}")
+        lines.append("")
+        lines.append(f"- Root: `{agent.root}`")
+        lines.append(f"- Version: {agent.profile.version}")
+        lines.append(f"- Docs: `governance/{slug}/`")
+        if agent.profile.description:
+            lines.append(f"- Description: {agent.profile.description}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _quickstart_body(
-    profile: AgentProfile, result: GenerationResult, context_from_file: bool
+    scan_result: ScanResult, result: GenerationResult, context_from_file: bool
 ) -> str:
+    agent_count = len(scan_result.agents)
     lines = [
-        f"# Governance quickstart for {profile.name}",
+        "# Governance quickstart",
         "",
-        f"Agent version: {profile.version}",
+        f"{agent_count} agent(s) governed in this project.",
         "",
         "## What was generated",
         "",
         "The governance document set in this directory was generated by autogovern.",
+        "Each agent has its own subdirectory under `governance/`.",
         "",
     ]
     for doc in result.regenerated:
@@ -455,28 +600,23 @@ def _append_changelog(
     common: _Common,
     result: GenerationResult,
     timestamp: str,
-    materiality: MaterialityResult | None,
 ) -> None:
-    """Append one entry per regenerating run: date, agent version, per-doc
-    version bumps, the most significant change, and the materiality score
-    (or "not scored" for a plain generate)."""
+    """Append one entry per regenerating run: date, per-doc version bumps,
+    and the most significant change."""
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""
     _, body_existing = parse_frontmatter(existing) if existing else ({}, "")
 
     llm_changes = [
-        (doc, old, new, level)
-        for doc, (old, new, level) in sorted(result.version_changes.items())
-        if doc in LLM_DOCS
+        (doc, old, new, level) for doc, (old, new, level) in sorted(result.version_changes.items())
     ]
     bumps = "; ".join(
         f"{doc} ({_fmt_version_change(old, new)})" for doc, old, new, _ in llm_changes
     )
     level = most_significant([lv for _, _, _, lv in llm_changes])
-    score = f"{materiality.score} ({materiality.band})" if materiality is not None else "not scored"
     entry = (
-        f"## {timestamp} — agent v{common.agent_version}\n\n"
+        f"## {timestamp}\n\n"
         f"Regenerated {len(llm_changes)} document(s): {bumps}.\n"
-        f"Most significant change: {level}. Materiality: {score}.\n"
+        f"Most significant change: {level}.\n"
     )
     new_body = (body_existing.lstrip("\n") + "\n" + entry) if body_existing.strip() else entry
 
@@ -498,6 +638,21 @@ def _append_changelog(
 def _fmt_version_change(old: str | None, new: str) -> str:
     """Render a version bump for prose: "0.1.0 → 0.2.0", or "new at 0.1.0"."""
     return f"{old} → {new}" if old is not None else f"new at {new}"
+
+
+def _slug(name: str) -> str:
+    """Slugify an agent name for use as a directory name."""
+    return name.lower().replace(" ", "-").replace("/", "-").strip(".")
+
+
+def _default_agent_context() -> AgentContext:
+    """The default AgentContext for an agent not in the context manifest."""
+    return AgentContext(
+        deployment_context="internal",
+        autonomy_level="human-in-the-loop",
+        intended_users="internal developers",
+        oversight_model="human reviews agent outputs before acting on them",
+    )
 
 
 # ---------------------------------------------------------------------------

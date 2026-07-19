@@ -1,14 +1,17 @@
 """The ``check`` command: CI gate for stale governance documentation.
 
 Five-step sequence from the spec:
-1. Rebuild the AgentProfile from the current code (scan)
-2. Diff it against the committed ``profile.lock``
+1. Rebuild the profile for every agent (scan)
+2. Diff each against its committed ``profile.lock``
 3. No diff: exit 0, print "governance: current". No LLM call
 4. Diff: score it (deterministic rules first, semantic pass for the remainder).
    Score >= material threshold means docs no longer describe the agent: exit 1
    with the score, stale sections, and the remediation command
 5. With ``--fix``, skip the exit and regenerate the stale sections plus the
    updated lockfile immediately, ready to commit
+
+Multi-agent: checks every agent in the repo. Exit code is the worst across
+all agents (1 if any is stale).
 """
 
 from __future__ import annotations
@@ -20,8 +23,8 @@ from autogovern.detect import DetectionResult, detect_material_change
 from autogovern.frameworks import Pack, load_pack, to_graph_input
 from autogovern.generate import GOVERNANCE_DIR, generate_docs
 from autogovern.generate.lockfile import read_context_lock, read_lockfile
-from autogovern.ingest import scan_repo
-from autogovern.models import Config, ContextManifest
+from autogovern.ingest import ScannedAgent, ScanResult, scan_repo
+from autogovern.models import AgentContext, Config, ContextManifest
 from autogovern.provider import ProviderClient
 
 
@@ -78,42 +81,71 @@ def run_check(
     pack: Pack | None = None,
     context_from_file: bool = True,
 ) -> CheckResult:
-    """Run the check sequence and optionally fix in place.
+    """Run the check sequence across all agents and optionally fix in place.
 
-    Args:
-        root: Repository root.
-        config: The autogovern config.
-        context: The organisational context manifest.
-        provider: The provider client (for semantic scoring and --fix).
-        strict: Treat advisory-band scores as failures.
-        fix: Regenerate stale sections and update the lockfile.
-        pack: Optional pre-loaded pack.
-        context_from_file: Whether context came from a file (vanilla mode flag).
+    Returns the worst result across all agents (exit code 1 if any is stale).
     """
     pack = pack or load_pack()
     governance_dir = root / GOVERNANCE_DIR
 
-    # Step 1: rebuild the profile.
     scan_result = scan_repo(root, config, provider=provider, write_card=False)
-    if not scan_result.signals_found or scan_result.profile is None:
+    if not scan_result.agents:
         return CheckResult(
             current=True,
             remediation="no agent signals found; nothing to check",
         )
-    current_profile = scan_result.profile
 
-    # Step 2: diff against the lockfiles.
-    locked_profile = read_lockfile(governance_dir)
-    locked_context = read_context_lock(governance_dir)
+    worst: CheckResult | None = None
+    for scanned in scan_result.agents:
+        agent_result = _check_one_agent(
+            root,
+            governance_dir,
+            config,
+            context,
+            provider,
+            scanned,
+            strict,
+            fix,
+            pack,
+            context_from_file,
+        )
+        if worst is None or agent_result.exit_code > worst.exit_code:
+            worst = agent_result
 
-    # Step 3-4: detect and score.
+    return worst or CheckResult(current=True)
+
+
+def _check_one_agent(
+    root: Path,
+    governance_dir: Path,
+    config: Config,
+    context: ContextManifest,
+    provider: ProviderClient,
+    scanned: ScannedAgent,
+    strict: bool,
+    fix: bool,
+    pack: Pack,
+    context_from_file: bool,
+) -> CheckResult:
+    """Check one agent against its lockfile."""
+    slug = _slug(scanned.name)
+    agent_gov_dir = governance_dir / slug
+    current_profile = scanned.profile
+
+    locked_profile = read_lockfile(agent_gov_dir)
+    locked_context = read_context_lock(agent_gov_dir)
+
+    # Build this agent's context for the diff (project + this agent's portion).
+    agent_context = context.agents.get(scanned.name, _default_agent_context())
+    agent_manifest = ContextManifest(project=context.project, agents={scanned.name: agent_context})
+
     detection = detect_material_change(
-        changed_files=[],  # CI mode: always run the profile diff
+        changed_files=[],
         config=config,
         locked_profile=locked_profile,
         current_profile=current_profile,
         locked_context=locked_context,
-        current_context=context,
+        current_context=agent_manifest,
         provider=provider,
         ci_mode=True,
     )
@@ -125,8 +157,6 @@ def run_check(
     changed_fields = [
         fd.field for fd in (detection.profile_diff.fields if detection.profile_diff else [])
     ]
-
-    # Map changed fields to affected document sections via the dependency graph.
     stale_sections = _stale_sections(changed_fields, pack)
 
     result = CheckResult(
@@ -139,21 +169,18 @@ def run_check(
             f"autogovern generate  # regenerate: {', '.join(stale_sections) or 'affected sections'}"
         ),
         detection=detection,
+        strict=strict,
     )
 
-    result.strict = strict
-
-    # Step 5: --fix regenerates in place.
     if fix:
         generate_docs(
             root,
             config,
-            current_profile,
+            ScanResult(agents=[scanned], root=str(root)),
             context,
             provider=provider,
             pack=pack,
             context_from_file=context_from_file,
-            materiality=detection.materiality,
         )
         result.fixed = True
 
@@ -168,6 +195,21 @@ def _stale_sections(changed_fields: list[str], pack: Pack) -> list[str]:
         if graph_input:
             sections.update(pack.graph.affected_documents(graph_input))
     return sorted(sections)
+
+
+def _slug(name: str) -> str:
+    """Slugify an agent name for use as a directory name."""
+    return name.lower().replace(" ", "-").replace("/", "-").strip(".")
+
+
+def _default_agent_context() -> AgentContext:
+    """The default AgentContext for an agent not in the context manifest."""
+    return AgentContext(
+        deployment_context="internal",
+        autonomy_level="human-in-the-loop",
+        intended_users="internal developers",
+        oversight_model="human reviews agent outputs before acting on them",
+    )
 
 
 __all__ = ["CheckResult", "run_check"]

@@ -78,7 +78,9 @@ def test_generate_writes_manifest(
 
     manifests = read_manifests(repo)
     assert len(manifests) >= 1
-    data = json.loads(manifests[-1].read_text())
+    gen_manifests = [m for m in manifests if json.loads(m.read_text())["command"] == "generate"]
+    assert gen_manifests
+    data = json.loads(gen_manifests[-1].read_text())
     assert data["command"] == "generate"
     assert data["model_id"] == "mock-model"
     assert len(data["sections_regenerated"]) > 0
@@ -117,7 +119,9 @@ def test_manifest_validates_against_runmanifest_schema(
     runner.invoke(app, ["generate", str(repo)])
 
     manifests = read_manifests(repo)
-    data = json.loads(manifests[-1].read_text())
+    gen_manifests = [m for m in manifests if json.loads(m.read_text())["command"] == "generate"]
+    assert gen_manifests
+    data = json.loads(gen_manifests[-1].read_text())
     manifest = RunManifest.model_validate(data)
     assert manifest.command == "generate"
     assert manifest.model_id == "mock-model"
@@ -159,7 +163,9 @@ def test_manifest_config_snapshot_strips_key_env(
     runner.invoke(app, ["generate", str(repo)])
 
     manifests = read_manifests(repo)
-    data = json.loads(manifests[-1].read_text())
+    gen_manifests = [m for m in manifests if json.loads(m.read_text())["command"] == "generate"]
+    assert gen_manifests
+    data = json.loads(gen_manifests[-1].read_text())
     snapshot = data.get("config_snapshot", {})
     mp = snapshot.get("model_provider", {})
     assert "api_key_env" not in mp

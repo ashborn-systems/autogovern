@@ -9,6 +9,7 @@ from autogovern.generate.engine import (
     ENGINE_DOCS_ALWAYS,
     GOVERNANCE_DIR,
     LLM_DOCS,
+    AgentGenerationResult,
     GenerationResult,
     generate_docs,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "GOVERNANCE_DIR",
     "LLM_DOCS",
     "STYLE_PREAMBLE",
+    "AgentGenerationResult",
     "GenerationResult",
     "build_frontmatter",
     "build_section_messages",

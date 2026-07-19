@@ -1,4 +1,4 @@
-# Invalid organisational context manifest for init --from rejection tests.
+# Invalid context manifest for init --from rejection tests.
 # Most fields are free-text strings now, so the invalid fixture targets
 # structural type mismatches: null where a string is required, and a
 # string where a list is required.
@@ -7,6 +7,7 @@ project:
   sector: null          # should be a string
   jurisdictions: "UK"   # should be a list
   risk_appetite: null   # should be a string
-agent:
-  deployment_context: null  # should be a string
-  autonomy_level: null      # should be a string
+agents:
+  default:
+    deployment_context: null  # should be a string
+    autonomy_level: null      # should be a string

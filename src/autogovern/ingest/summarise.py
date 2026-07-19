@@ -71,7 +71,7 @@ def summarise_free_text(
 
     prompt = _build_prompt(instruction_files, readme)
     try:
-        summary = provider.chat_json(prompt, schema=FreeTextSummary)
+        summary = provider.chat_json(prompt, schema=FreeTextSummary, label="scan.summarise")
     except Exception:
         # Degraded mode: a provider failure must not abort the scan. The
         # deterministic profile is still produced, with free-text fields empty.

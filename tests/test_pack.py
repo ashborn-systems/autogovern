@@ -133,7 +133,7 @@ def test_graph_unknown_input_returns_empty(pack: Pack) -> None:
 
 
 def test_graph_context_field_routes(pack: Pack) -> None:
-    assert pack.graph.affected_documents("context.agent.autonomy_level") == [
+    assert pack.graph.affected_documents("context.agents.default.autonomy_level") == [
         "oversight.md",
         "system-card.md",
     ]
@@ -146,7 +146,7 @@ def test_graph_deterministic_across_loads(pack: Pack) -> None:
     for field in (
         "profile.governance.model_configuration",
         "profile.governance.permissions_surface",
-        "context.agent.autonomy_level",
+        "context.agents.default.autonomy_level",
         "context.project.jurisdictions",
     ):
         assert pack.graph.affected_documents(field) == other.graph.affected_documents(field)

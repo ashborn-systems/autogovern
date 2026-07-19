@@ -6,7 +6,6 @@ for convenience.
 
 from autogovern.api import (
     CheckResult,
-    GenerationResult,
     ScanResult,
     build_provider,
     check,
@@ -15,6 +14,7 @@ from autogovern.api import (
     scan,
 )
 from autogovern.cli import app
+from autogovern.generate import GenerationResult
 
 __all__ = [
     "CheckResult",

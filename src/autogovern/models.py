@@ -236,15 +236,16 @@ class NormalisedContext(BaseModel):
 
 
 class ContextManifest(BaseModel):
-    """Organisational context captured by the ``init`` wizard.
+    """Project context captured by the ``init`` wizard.
 
-    Two sections: project-level (org-wide) and agent-level (this specific
-    agent). The agent-level enum fields are free text here and normalised
-    to canonical enums at generation time.
+    Two sections: project-level (org-wide, one copy) and a per-agent map
+    keyed by agent name. The agent-level enum fields are free text here and
+    normalised to canonical enums at generation time. Agents not present in
+    the dict get default context during ``generate``.
     """
 
     project: ProjectContext
-    agent: AgentContext
+    agents: dict[str, AgentContext] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -285,12 +286,19 @@ DEFAULT_WATCHED_PATHS: list[str] = [
 ]
 
 
+class ObservabilityConfig(BaseModel):
+    """Tracing configuration. Off by default; nothing leaves the machine."""
+
+    tracing: bool = False
+
+
 class Config(BaseModel):
     """The ``.autogovern/config.yaml`` document."""
 
     model_provider: ModelProviderConfig
     watched_paths: list[str] = Field(default_factory=lambda: list(DEFAULT_WATCHED_PATHS))
     thresholds: Thresholds = Field(default_factory=Thresholds)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     documents: dict[str, bool] = Field(
         default_factory=lambda: {
             "quickstart": True,
@@ -317,6 +325,27 @@ class SectionRegeneration(BaseModel):
 
     section: str
     changed_input: str
+
+
+class CallRecord(BaseModel):
+    """One LLM call's usage, attributed to the pipeline stage that made it."""
+
+    label: str
+    prompt: int | None = None
+    completion: int | None = None
+    total: int | None = None
+
+
+class NormalisationOutcome(BaseModel):
+    """The result of the free-text context normalisation pass.
+
+    Recorded in the run manifest so a bad generation can be traced back to a
+    normalisation fallback.
+    """
+
+    used_llm: bool
+    fallback: bool = False
+    fields: list[str] = Field(default_factory=list)
 
 
 class TokenCounts(BaseModel):
@@ -353,6 +382,8 @@ class RunManifest(BaseModel):
     sections_regenerated: list[SectionRegeneration] = Field(default_factory=list)
     model_id: str | None = None
     token_counts: TokenCounts | None = None
+    call_log: list[CallRecord] = Field(default_factory=list)
+    normalisation: NormalisationOutcome | None = None
     prompt_template_versions: dict[str, str] = Field(default_factory=dict)
     materiality: MaterialityResult | None = None
 
@@ -366,6 +397,7 @@ __all__ = [
     "AgentSkill",
     "AgentContext",
     "AutonomyLevel",
+    "CallRecord",
     "Config",
     "ContextManifest",
     "DEFAULT_WATCHED_PATHS",
@@ -378,6 +410,8 @@ __all__ = [
     "ModelConfiguration",
     "ModelProviderConfig",
     "NormalisedContext",
+    "NormalisationOutcome",
+    "ObservabilityConfig",
     "Permission",
     "ProjectContext",
     "PromptEntry",

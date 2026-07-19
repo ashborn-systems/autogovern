@@ -1,0 +1,4 @@
+[project]
+name = "support-agent"
+version = "0.2.0"
+description = "A customer support triage agent."

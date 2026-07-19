@@ -47,8 +47,10 @@ def test_generate_profile_no_repo(
 
     result = runner.invoke(app, ["generate", str(tmp_path), "--profile", str(FIXTURE_PROFILE)])
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "governance" / "system-card.md").is_file()
-    assert (tmp_path / "governance" / "profile.lock").is_file()
+    profile = autogovern.load_profile(FIXTURE_PROFILE)
+    slug = profile.name.lower().replace(" ", "-").replace("/", "-").strip(".")
+    assert (tmp_path / "governance" / slug / "system-card.md").is_file()
+    assert (tmp_path / "governance" / slug / "profile.lock").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -74,8 +76,8 @@ def test_library_scan_returns_typed_result(tmp_path: Path, config_env: None) -> 
     provider.close()
 
     assert isinstance(result, autogovern.ScanResult)
-    assert result.profile is not None
-    assert result.profile.name == "support-triage-agent"
+    assert result.agents
+    assert result.agents[0].profile.name == "support-triage-agent"
 
 
 def test_library_check_returns_typed_result(tmp_path: Path, config_env: None) -> None:
@@ -94,8 +96,8 @@ def test_library_check_returns_typed_result(tmp_path: Path, config_env: None) ->
     provider = make_mock_provider(cfg)
     # Generate first so there's a lockfile.
     scan_result = autogovern.scan(repo, cfg, provider=provider)
-    assert scan_result.profile is not None
-    autogovern.generate_docs(repo, cfg, scan_result.profile, default_context(), provider=provider)
+    assert scan_result.agents
+    autogovern.generate_docs(repo, cfg, scan_result, default_context(), provider=provider)
     # Now check.
     result = autogovern.check(repo, cfg, default_context(), provider=provider)
     provider.close()
@@ -119,7 +121,17 @@ def test_library_check_headless_profile(tmp_path: Path, config_env: None) -> Non
     profile = autogovern.load_profile(FIXTURE_PROFILE)
 
     # Generate first so there's a lockfile to diff against.
-    autogovern.generate_docs(tmp_path, cfg, profile, default_context(), provider=provider)
+    from autogovern.ingest import ScannedAgent, ScanResult
+
+    scan_result = ScanResult(
+        agents=[
+            ScannedAgent(
+                name=profile.name, root=".", profile=profile, card_written=False, card_path=None
+            )
+        ],
+        root=str(tmp_path),
+    )
+    autogovern.generate_docs(tmp_path, cfg, scan_result, default_context(), provider=provider)
 
     result = autogovern.check(tmp_path, cfg, default_context(), provider=provider, profile=profile)
     provider.close()
@@ -170,9 +182,9 @@ def test_check_profile_parity_with_repo(
     scan_provider = make_mock_provider(cfg)
     scan_result = ag_mod.scan(repo, cfg, provider=scan_provider)
     scan_provider.close()
-    assert scan_result.profile is not None
+    assert scan_result.agents
     profile_file = tmp_path / "scanned-profile.json"
-    profile_file.write_text(scan_result.profile.model_dump_json(indent=2))
+    profile_file.write_text(scan_result.agents[0].profile.model_dump_json(indent=2))
 
     # Check via repo scan → current.
     result_repo = runner.invoke(app, ["check", str(repo), "--json"])
@@ -201,7 +213,7 @@ def test_public_api_signatures_stable() -> None:
     # Each function must accept these parameter names.
     expected = {
         "scan": {"root", "config", "provider"},
-        "generate_docs": {"root", "config", "profile", "context", "provider"},
+        "generate_docs": {"root", "config", "scan_result", "context", "provider"},
         "check": {
             "root",
             "config",

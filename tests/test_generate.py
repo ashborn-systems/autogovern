@@ -36,7 +36,9 @@ from tests.conftest import make_mock_provider
 runner = CliRunner()
 
 FIXTURE_BASIC = Path(__file__).resolve().parent / "fixtures" / "fixture-basic"
+SLUG = "support-triage-agent"
 GOV = "governance"
+AGENT_GOV = f"governance/{SLUG}"
 
 
 @pytest.fixture
@@ -71,16 +73,16 @@ def _scan_and_generate(
     os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
     provider = make_mock_provider(config)
     scan_result = scan_repo(repo, config, provider=provider, write_card=False)
-    assert scan_result.profile is not None
+    assert scan_result.agents
     result = generate_docs(
         repo,
         config,
-        scan_result.profile,
+        scan_result,
         context,
         provider=provider,
         context_from_file=True,
     )
-    return scan_result.profile, result, provider
+    return scan_result.agents[0].profile, result, provider
 
 
 # ---------------------------------------------------------------------------
@@ -105,13 +107,14 @@ def test_generate_produces_full_document_set(
         "CHANGELOG.md",
     }
     actual = {f.name for f in (gen_repo / GOV).iterdir() if f.is_file()}
+    actual |= {f.name for f in (gen_repo / AGENT_GOV).iterdir() if f.is_file()}
     assert expected <= actual
     assert result.llm_call_count == 7  # the seven LLM-fed documents
 
 
 def test_generate_writes_lockfile(gen_repo: Path, config: Config, context: ContextManifest) -> None:
     profile, _, _ = _scan_and_generate(gen_repo, config, context)
-    lock = gen_repo / GOV / "profile.lock"
+    lock = gen_repo / AGENT_GOV / "profile.lock"
     assert lock.is_file()
     locked = AgentProfile.model_validate(yaml.safe_load(lock.read_text()))
     assert locked.name == profile.name
@@ -139,7 +142,19 @@ def test_every_document_has_valid_frontmatter(
             continue
         text = doc.read_text()
         assert text.startswith("---"), f"{doc.name} missing frontmatter"
-        # Parse frontmatter.
+        end = text.index("\n---", 3)
+        fm = yaml.safe_load(text[4:end])
+        assert isinstance(fm, dict), f"{doc.name} frontmatter not a mapping"
+        missing = required_fields - set(fm)
+        assert not missing, f"{doc.name} missing frontmatter fields: {missing}"
+        assert fm["framework_pack_version"], f"{doc.name} empty pack version"
+        assert isinstance(fm["input_hashes"], dict), f"{doc.name} input_hashes not a dict"
+        assert fm["section_hashes"], f"{doc.name} empty section_hashes"
+    for doc in (gen_repo / AGENT_GOV).iterdir():
+        if doc.name in ("profile.lock", "context.lock") or not doc.is_file():
+            continue
+        text = doc.read_text()
+        assert text.startswith("---"), f"{doc.name} missing frontmatter"
         end = text.index("\n---", 3)
         fm = yaml.safe_load(text[4:end])
         assert isinstance(fm, dict), f"{doc.name} frontmatter not a mapping"
@@ -154,7 +169,7 @@ def test_input_hashes_contain_profile_provenance(
     gen_repo: Path, config: Config, context: ContextManifest
 ) -> None:
     profile, _, _ = _scan_and_generate(gen_repo, config, context)
-    card_text = (gen_repo / GOV / "system-card.md").read_text()
+    card_text = (gen_repo / AGENT_GOV / "system-card.md").read_text()
     end = card_text.index("\n---", 3)
     fm = yaml.safe_load(card_text[4:end])
     # The fixture's model-config source file should appear in input_hashes.
@@ -188,13 +203,13 @@ def test_second_generate_reports_all_skipped(
     _, _, _ = _scan_and_generate(gen_repo, config, context)
     _, result2, _ = _scan_and_generate(gen_repo, config, context)
     assert sorted(result2.skipped) == [
-        "data-protection.md",
-        "incident-response.md",
-        "inventory.md",
-        "oversight.md",
-        "risk-assessment.md",
-        "system-card.md",
-        "testing.md",
+        "support-triage-agent/data-protection.md",
+        "support-triage-agent/incident-response.md",
+        "support-triage-agent/inventory.md",
+        "support-triage-agent/oversight.md",
+        "support-triage-agent/risk-assessment.md",
+        "support-triage-agent/system-card.md",
+        "support-triage-agent/testing.md",
     ]
 
 
@@ -221,7 +236,7 @@ def test_model_config_change_regenerates_only_graph_sections(
     _, _, _ = _scan_and_generate(gen_repo, config, context)
 
     # Normalise mtimes so we can detect untouched files.
-    gov = gen_repo / GOV
+    gov = gen_repo / AGENT_GOV
     for f in gov.iterdir():
         if f.is_file():
             os.utime(f, (time.time(), time.time()))
@@ -234,7 +249,10 @@ def test_model_config_change_regenerates_only_graph_sections(
     _, result3, _ = _scan_and_generate(gen_repo, config, context)
 
     # The graph names system-card and inventory for model_configuration.
-    assert sorted(result3.regenerated) == ["inventory.md", "system-card.md"]
+    assert sorted(result3.regenerated) == [
+        "support-triage-agent/inventory.md",
+        "support-triage-agent/system-card.md",
+    ]
     assert result3.llm_call_count == 2
 
     # The other five LLM-fed docs were not rewritten (mtimes untouched).
@@ -304,15 +322,29 @@ def test_section_prompt_embeds_style_authority(
     os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
     provider = make_mock_provider(config)
     scan_result = scan_repo(gen_repo, config, provider=provider, write_card=False)
-    assert scan_result.profile is not None
+    assert scan_result.agents[0].profile is not None
+    agent_name = scan_result.agents[0].profile.name
+    # Build a context with the agent's default context for prompt tests.
+    from autogovern.models import AgentContext
+
+    test_context = type(context)(
+        project=context.project,
+        agents={agent_name: AgentContext()},
+    )
     pack = load_pack()
     feed = pack.document_feeds["system-card.md"]
     from autogovern.generate.inputs import extract_input
 
-    declared = {p: extract_input(p, scan_result.profile, context) for p in feed.profile_inputs}
-    declared.update(
-        {p: extract_input(p, scan_result.profile, context) for p in feed.context_inputs}
-    )
+    declared = {
+        p: extract_input(p, scan_result.agents[0].profile, test_context)
+        for p in feed.profile_inputs
+    }
+    for p in feed.context_inputs:
+        resolved = p
+        if p.startswith("context.agents.*."):
+            field_name = p.split("*.", 1)[1]
+            resolved = f"context.agents.{agent_name}.{field_name}"
+        declared[p] = extract_input(resolved, scan_result.agents[0].profile, test_context)
     messages = build_section_messages("system-card.md", feed, declared, pack.style_authority)
     system_prompt = messages[0]["content"]
     assert STYLE_PREAMBLE in system_prompt
@@ -331,18 +363,20 @@ def test_section_prompt_contains_only_declared_inputs(
     os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
     provider = make_mock_provider(config)
     scan_result = scan_repo(gen_repo, config, provider=provider, write_card=False)
-    assert scan_result.profile is not None
+    assert scan_result.agents[0].profile is not None
     pack = load_pack()
     feed = pack.document_feeds["inventory.md"]
     from autogovern.generate.inputs import extract_input
 
-    declared = {p: extract_input(p, scan_result.profile, context) for p in feed.profile_inputs}
+    declared = {
+        p: extract_input(p, scan_result.agents[0].profile, context) for p in feed.profile_inputs
+    }
     messages = build_section_messages("inventory.md", feed, declared, pack.style_authority)
     user_prompt = messages[1]["content"]
     # Declared input appears.
     assert "profile.governance.model_configuration" in user_prompt
     # A field inventory.md does not declare (risk_appetite) is absent.
-    assert "context.risk_appetite" not in user_prompt
+    assert "context.project.risk_appetite" not in user_prompt
     provider.close()
 
 
@@ -381,8 +415,8 @@ def test_generate_cli_writes_docs(
     result = runner.invoke(app, ["generate", str(gen_repo)])
     assert result.exit_code == 0, result.output
     assert "regenerated" in result.output.lower()
-    assert (gen_repo / GOV / "system-card.md").is_file()
-    assert (gen_repo / GOV / "profile.lock").is_file()
+    assert (gen_repo / AGENT_GOV / "system-card.md").is_file()
+    assert (gen_repo / AGENT_GOV / "profile.lock").is_file()
 
 
 def test_generate_cli_no_agent_signals_exits_nonzero(
@@ -426,7 +460,7 @@ def test_generate_failure_leaves_no_partial_files(
     from autogovern.provider import ProviderError
 
     class FailingProvider:
-        def chat(self, messages: list[dict[str, str]]) -> str:
+        def chat(self, messages: list[dict[str, str]], **kwargs: object) -> str:
             raise ProviderError("simulated failure")
 
         def close(self) -> None:
@@ -438,12 +472,12 @@ def test_generate_failure_leaves_no_partial_files(
     src = gen_repo / "src" / "support_triage_agent.py"
     src.write_text(src.read_text().replace("claude-3-5-sonnet", "claude-3-5-haiku"))
     scan_result = scan_repo(gen_repo, config, provider=make_mock_provider(config), write_card=False)
-    assert scan_result.profile is not None
+    assert scan_result.agents[0].profile is not None
     with pytest.raises(ProviderError):
         generate_docs(
             gen_repo,
             config,
-            scan_result.profile,
+            scan_result,
             context,
             provider=provider,
             context_from_file=True,
@@ -451,7 +485,7 @@ def test_generate_failure_leaves_no_partial_files(
 
     # No .tmp files left behind.
     gov = gen_repo / GOV
-    assert not list(gov.glob("*.tmp"))
+    assert not list(gov.rglob("*.tmp"))
     # Existing files are unchanged (the failure aborted before any write).
     for name, content in snapshot.items():
         assert (gov / name).read_text() == content
@@ -469,12 +503,12 @@ def test_vanilla_mode_generates_docs_without_context(gen_repo: Path, config: Con
     os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
     provider = make_mock_provider(config)
     scan_result = scan_repo(gen_repo, config, provider=provider, write_card=False)
-    assert scan_result.profile is not None
+    assert scan_result.agents[0].profile is not None
     context = default_context()  # vanilla: no context file loaded
     result = generate_docs(
         gen_repo,
         config,
-        scan_result.profile,
+        scan_result,
         context,
         provider=provider,
         context_from_file=False,
@@ -482,7 +516,7 @@ def test_vanilla_mode_generates_docs_without_context(gen_repo: Path, config: Con
     provider.close()
 
     assert result.llm_call_count == 7
-    assert (gen_repo / GOV / "system-card.md").is_file()
+    assert (gen_repo / AGENT_GOV / "system-card.md").is_file()
     assert (gen_repo / GOV / "ATTENTION.md").is_file()
 
     att = (gen_repo / GOV / "ATTENTION.md").read_text()
@@ -500,12 +534,12 @@ def test_vanilla_mode_idempotent(gen_repo: Path, config: Config) -> None:
     os.environ["AUTOGOVERN_TEST_KEY"] = "sk-test"
     provider = make_mock_provider(config)
     scan_result = scan_repo(gen_repo, config, provider=provider, write_card=False)
-    assert scan_result.profile is not None
+    assert scan_result.agents[0].profile is not None
     context = default_context()
     generate_docs(
         gen_repo,
         config,
-        scan_result.profile,
+        scan_result,
         context,
         provider=provider,
         context_from_file=False,
@@ -519,7 +553,7 @@ def test_vanilla_mode_idempotent(gen_repo: Path, config: Config) -> None:
     result2 = generate_docs(
         gen_repo,
         config,
-        scan_result2.profile,
+        scan_result2,
         context,
         provider=provider2,
         context_from_file=False,
@@ -539,5 +573,10 @@ def test_vanilla_mode_idempotent(gen_repo: Path, config: Config) -> None:
 
 
 def _snapshot(repo: Path) -> dict[str, str]:
+    """Snapshot all governance files recursively."""
+    result = {}
     gov = repo / GOV
-    return {f.name: f.read_text() for f in gov.iterdir() if f.is_file()}
+    for f in gov.rglob("*"):
+        if f.is_file():
+            result[str(f.relative_to(gov))] = f.read_text()
+    return result

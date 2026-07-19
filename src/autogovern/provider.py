@@ -68,6 +68,7 @@ class ProviderClient:
         self._usage_completion = 0
         self._usage_total = 0
         self._usage_reported = False
+        self._call_log: list[dict[str, Any]] = []
 
     @property
     def total_usage(self) -> dict[str, int | None] | None:
@@ -85,6 +86,11 @@ class ProviderClient:
             "total": self._usage_total if self._usage_total else None,
         }
 
+    @property
+    def call_log(self) -> list[dict[str, Any]]:
+        """Per-call usage records, attributed to the pipeline stage that made them."""
+        return list(self._call_log)
+
     def close(self) -> None:
         """Close the underlying HTTP client if we own it."""
         if self._owns_client:
@@ -101,18 +107,20 @@ class ProviderClient:
         messages: list[dict[str, str]],
         *,
         temperature: float | None = None,
+        label: str = "",
     ) -> str:
         """Send a chat completion request and return the assistant's text.
 
         Args:
             messages: OpenAI-style message list (role + content).
             temperature: Override the config temperature for this call.
+            label: Attribution for per-call token tracking (e.g. "system-card").
 
         Returns:
             The assistant's message content as a string.
         """
         payload = self._build_payload(messages, temperature)
-        response_body = self._request_with_retry(payload)
+        response_body = self._request_with_retry(payload, label=label)
         return self._extract_text(response_body)
 
     def chat_json(
@@ -121,6 +129,7 @@ class ProviderClient:
         *,
         temperature: float | None = None,
         schema: type[BaseModel] | None = None,
+        label: str = "",
     ) -> Any:
         """Send a chat completion request and return parsed JSON.
 
@@ -132,6 +141,7 @@ class ProviderClient:
             messages: OpenAI-style message list.
             temperature: Override the config temperature for this call.
             schema: Optional pydantic model to validate the response against.
+            label: Attribution for per-call token tracking (e.g. "normalise").
 
         Returns:
             A validated model instance if ``schema`` is given, else a parsed
@@ -139,7 +149,7 @@ class ProviderClient:
         """
         messages = [*messages, {"role": "user", "content": "Respond with valid JSON only."}]
         payload = self._build_payload(messages, temperature, json_mode=True)
-        response_body = self._request_with_retry(payload)
+        response_body = self._request_with_retry(payload, label=label)
         text = self._extract_text(response_body)
         parsed = self._parse_json(text)
         if schema is not None:
@@ -172,7 +182,7 @@ class ProviderClient:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
-    def _request_with_retry(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _request_with_retry(self, payload: dict[str, Any], *, label: str = "") -> dict[str, Any]:
         url = f"{self._config.model_provider.api_base.rstrip('/')}/chat/completions"
         headers = self._build_headers()
 
@@ -218,13 +228,13 @@ class ProviderClient:
                 raise ProviderResponseError(f"Provider returned non-JSON body: {exc}") from exc
             usage = result.get("usage")
             if isinstance(usage, dict):
-                self._record_usage(usage)
+                self._record_usage(usage, label=label)
             return result
 
         # Unreachable, but keeps mypy happy.
         raise ProviderUnreachableError(f"Exhausted retries contacting provider: {last_exc}")
 
-    def _record_usage(self, usage: dict[str, Any]) -> None:
+    def _record_usage(self, usage: dict[str, Any], *, label: str = "") -> None:
         """Accumulate a response's usage block, when the provider sends one."""
         prompt = usage.get("prompt_tokens")
         completion = usage.get("completion_tokens")
@@ -235,6 +245,14 @@ class ProviderClient:
         self._usage_prompt += prompt if isinstance(prompt, int) else 0
         self._usage_completion += completion if isinstance(completion, int) else 0
         self._usage_total += total if isinstance(total, int) else 0
+        self._call_log.append(
+            {
+                "label": label,
+                "prompt": prompt if isinstance(prompt, int) else None,
+                "completion": completion if isinstance(completion, int) else None,
+                "total": total if isinstance(total, int) else None,
+            }
+        )
 
     def _build_headers(self) -> dict[str, str]:
         key = self._read_key()

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from autogovern.models import Config
@@ -45,10 +46,21 @@ _IGNORED_DIRS = frozenset(
     }
 )
 
-# Default discovery globs, proposed and documented here.
-_INSTRUCTION_GLOBS = ("CLAUDE.md", "AGENTS.md", "agent.md", ".claude/**/*.md")
+# Discovery globs. Strong signals (instruction files, MCP configs, agent
+# cards) are searched recursively so agents in subdirectories are found.
+# Manifests and READMEs are per-agent-root, found within each root.
+_INSTRUCTION_GLOBS = (
+    "CLAUDE.md",
+    "AGENTS.md",
+    "agent.md",
+    "**/CLAUDE.md",
+    "**/AGENTS.md",
+    "**/agent.md",
+    ".claude/**/*.md",
+    "**/.claude/**/*.md",
+)
 _README_GLOBS = ("README.md", "README.rst")
-_MCP_GLOBS = (".mcp.json", "mcp.json")
+_MCP_GLOBS = (".mcp.json", "mcp.json", "**/.mcp.json", "**/mcp.json")
 _MANIFEST_GLOBS = ("pyproject.toml", "package.json", "requirements.txt")
 _PROMPT_GLOBS = (
     "prompts/**/*.md",
@@ -56,7 +68,7 @@ _PROMPT_GLOBS = (
     "**/prompts/**/*.md",
     "**/prompts/**/*.txt",
 )
-_CARD_GLOB = ".well-known/agent.json"
+_CARD_GLOBS = (".well-known/agent.json", "**/.well-known/agent.json")
 _SOURCE_GLOBS = ("**/*.py", "**/*.ts", "**/*.js")
 
 
@@ -113,6 +125,28 @@ class DiscoveredSources:
     source_files: list[FileSource] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class AgentDiscovery:
+    """One agent's discovery result: its root directory plus all its files.
+
+    An agent root is a directory containing a strong signal (instruction
+    file, MCP config, or existing agent card). Prompt files and source files
+    attach to the nearest enclosing agent root.
+
+    ``root`` is relative to the project root: ``"."`` for a root-level agent,
+    ``"billing-agent"`` for one in a subdirectory.
+    """
+
+    root: str
+    signals: DiscoveredSignals
+    source_files: list[FileSource] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        """The agent's name, derived from its root directory or ``default``."""
+        return self.root.replace("/", "-").strip(".") or "default"
+
+
 def discover_signals(root: Path, config: Config | None = None) -> DiscoveredSignals:
     """Find all signal-bearing files under ``root``.
 
@@ -132,7 +166,7 @@ def discover_signals(root: Path, config: Config | None = None) -> DiscoveredSign
         mcp_configs=_discover_globs(root, _MCP_GLOBS),
         manifests=_discover_globs(root, _MANIFEST_GLOBS),
         prompt_files=_discover_globs(root, _PROMPT_GLOBS),
-        agent_card=_first(_discover_globs(root, (_CARD_GLOB,))),
+        agent_card=_first(_discover_globs(root, _CARD_GLOBS)),
     )
 
 
@@ -143,6 +177,130 @@ def discover_source_files(root: Path) -> list[FileSource]:
     runs against a plain non-agent project.
     """
     return _discover_globs(root, _SOURCE_GLOBS)
+
+
+def discover_agents(root: Path, config: Config | None = None) -> list[AgentDiscovery]:
+    """Discover all agents in a repo by finding strong signals recursively.
+
+    An agent root is a directory containing at least one strong signal: an
+    instruction file, an MCP config, or an existing agent card. Prompt files
+    and source files attach to the nearest enclosing agent root.
+
+    Returns one :class:`AgentDiscovery` per agent root. The repo root itself
+    is an agent root if it has strong signals. A non-agent repo returns an
+    empty list — no ``None``, no special case.
+    """
+    _ = config  # reserved for future config-driven globs
+
+    # Find all strong-signal files recursively.
+    instruction_files = _discover_globs(root, _INSTRUCTION_GLOBS)
+    mcp_configs = _discover_globs(root, _MCP_GLOBS)
+    agent_cards = _discover_globs(root, _CARD_GLOBS)
+
+    # Collect the set of directories that are agent roots.
+    agent_root_dirs: set[Path] = set()
+    for source in [*instruction_files, *mcp_configs, *agent_cards]:
+        agent_root = _agent_root_for(root, Path(source.rel_path))
+        agent_root_dirs.add(agent_root)
+
+    if not agent_root_dirs:
+        return []
+
+    # Build per-agent discovery, sorted for deterministic ordering.
+    discoveries: list[AgentDiscovery] = []
+    for agent_root in sorted(agent_root_dirs):
+        rel_root = _rel_path(root, agent_root) if agent_root != root else "."
+        signals = _signals_for_root(root, agent_root)
+        source_files = [
+            s
+            for s in _discover_globs(root, _SOURCE_GLOBS)
+            if _agent_root_for(root, Path(s.rel_path)) == agent_root
+        ]
+        discoveries.append(
+            AgentDiscovery(root=rel_root, signals=signals, source_files=source_files)
+        )
+    return discoveries
+
+
+def _signals_for_root(root: Path, agent_root: Path) -> DiscoveredSignals:
+    """Build the DiscoveredSignals scoped to one agent root."""
+    # Instruction files directly in this agent root (not in subdirectories
+    # that are themselves agent roots).
+    instruction = [
+        s
+        for s in _discover_globs(root, _INSTRUCTION_GLOBS)
+        if _agent_root_for(root, Path(s.rel_path)) == agent_root
+    ]
+    mcp = [
+        s
+        for s in _discover_globs(root, _MCP_GLOBS)
+        if _agent_root_for(root, Path(s.rel_path)) == agent_root
+    ]
+    cards = [
+        s
+        for s in _discover_globs(root, _CARD_GLOBS)
+        if _agent_root_for(root, Path(s.rel_path)) == agent_root
+    ]
+    prompts = [
+        s
+        for s in _discover_globs(root, _PROMPT_GLOBS)
+        if _agent_root_for(root, Path(s.rel_path)) == agent_root
+    ]
+    # README and manifest are per-agent-root.
+    readme = _first(_discover_globs(agent_root, _README_GLOBS))
+    manifests = _discover_globs(agent_root, _MANIFEST_GLOBS)
+
+    return DiscoveredSignals(
+        instruction_files=instruction,
+        readme=readme,
+        mcp_configs=mcp,
+        manifests=manifests,
+        prompt_files=prompts,
+        agent_card=_first(cards),
+    )
+
+
+def _agent_root_for(root: Path, file_rel: Path) -> Path:
+    """The nearest enclosing agent root for a file.
+
+    Walks up from the file's directory to the repo root. The first directory
+    that contains a strong signal (instruction file, MCP config, or agent card)
+    is the agent root. Files in a non-agent repo map to the repo root, but
+    this function is only called when agent roots exist.
+    """
+    # Find all strong-signal directories once (cached via closure).
+    strong_dirs = _strong_signal_dirs(root)
+
+    current = (root / file_rel).parent
+    while current >= root:
+        if current in strong_dirs:
+            return current
+        if current == root:
+            return root if root in strong_dirs else current
+        current = current.parent
+    return root
+
+
+@lru_cache(maxsize=1)
+def _strong_signal_dirs(root: Path) -> frozenset[Path]:
+    """The set of directories that directly contain a strong signal.
+
+    Agent card files (``.well-known/agent.json``) are metadata, not agent
+    roots. Their parent directory (``.well-known/``) must not be treated as
+    an agent root — the card belongs to the agent root above it.
+    """
+    dirs: set[Path] = set()
+    for source in [
+        *_discover_globs(root, _INSTRUCTION_GLOBS),
+        *_discover_globs(root, _MCP_GLOBS),
+    ]:
+        dirs.add((root / Path(source.rel_path)).parent)
+    # Card files contribute their parent's parent (the agent root), not
+    # the .well-known directory itself.
+    for source in _discover_globs(root, _CARD_GLOBS):
+        card_parent = (root / Path(source.rel_path)).parent
+        dirs.add(card_parent.parent)
+    return frozenset(dirs)
 
 
 # ---------------------------------------------------------------------------
@@ -208,9 +366,11 @@ def _first(sources: list[FileSource]) -> FileSource | None:
 
 
 __all__ = [
+    "AgentDiscovery",
     "DiscoveredSignals",
     "DiscoveredSources",
     "FileSource",
+    "discover_agents",
     "discover_signals",
     "discover_source_files",
 ]

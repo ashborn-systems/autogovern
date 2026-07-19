@@ -101,8 +101,8 @@ def test_load_context_from_file_invalid_lists_every_field() -> None:
         "project.sector",
         "project.jurisdictions",
         "project.risk_appetite",
-        "agent.deployment_context",
-        "agent.autonomy_level",
+        "agents.default.deployment_context",
+        "agents.default.autonomy_level",
     ):
         assert field in joined
 
@@ -243,8 +243,8 @@ def test_init_interactive_accepts_free_text_multivalue(clean_cwd: Path, provider
     raw = yaml.safe_load((clean_cwd / CONTEXT_FILE).read_text())
     ctx = ContextManifest.model_validate(raw)
     assert ctx.project.organisation == "Ashborn Systems"
-    assert ctx.agent.deployment_context == "customer-facing, internal"
-    assert ctx.agent.autonomy_level == "fully-autonomous, human-on-the-loop"
+    assert ctx.agents["default"].deployment_context == "customer-facing, internal"
+    assert ctx.agents["default"].autonomy_level == "fully-autonomous, human-on-the-loop"
 
 
 def test_init_defaults_installs_hooks_and_ci(
@@ -312,8 +312,8 @@ def test_init_from_invalid_exits_nonzero_listing_fields(
         "project.sector",
         "project.jurisdictions",
         "project.risk_appetite",
-        "agent.deployment_context",
-        "agent.autonomy_level",
+        "agents.default.deployment_context",
+        "agents.default.autonomy_level",
     ):
         assert field in result.output
     # Nothing written when validation fails.
@@ -383,7 +383,7 @@ def test_format_context_errors_renders_each_field() -> None:
     with pytest.raises(ValidationError) as exc_info:
         ContextManifest(
             project={"organisation": None, "sector": "x"},
-            agent={"deployment_context": None},
+            agents={"default": {"deployment_context": None}},
         )
     lines = format_context_errors(exc_info.value)
     assert len(lines) == 2

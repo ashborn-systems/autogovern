@@ -1,6 +1,6 @@
 [project]
 name = "autogovern"
-version = "0.1.2"
+version = "0.2.0"
 description = "Generate and maintain governance documentation for AI agents."
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,15 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
+    "rich>=13.7.1",
     "typer>=0.27.0",
+]
+
+[project.optional-dependencies]
+tracing = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0",
 ]
 
 [project.scripts]
@@ -55,6 +63,10 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry.*"]
+ignore_missing_imports = true
 
 [tool.uv]
 package = true

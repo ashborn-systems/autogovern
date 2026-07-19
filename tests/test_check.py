@@ -17,11 +17,14 @@ from autogovern.hooks import (
     install_ci_config,
     install_pre_commit_hook,
 )
+from autogovern.models import AgentContext
 
 runner = CliRunner()
 
 FIXTURE_BASIC = Path(__file__).resolve().parent / "fixtures" / "fixture-basic"
 GOV = "governance"
+SLUG = "support-triage-agent"
+AGENT_GOV = f"{GOV}/{SLUG}"
 
 
 @pytest.fixture
@@ -59,7 +62,18 @@ def _write_init(repo: Path) -> None:
         yaml.safe_dump(cfg.model_dump(mode="json"), sort_keys=False)
     )
     (repo / ".autogovern" / "context.yaml").write_text(
-        yaml.safe_dump(default_context().model_dump(mode="json"), sort_keys=False)
+        yaml.safe_dump(
+            default_context()
+            .model_copy(
+                update={
+                    "agents": {
+                        "support-triage-agent": AgentContext(autonomy_level="human-in-the-loop")
+                    }
+                }
+            )
+            .model_dump(mode="json"),
+            sort_keys=False,
+        )
     )
 
 
@@ -99,7 +113,7 @@ def test_acceptance_2_check_fix_cycle(
     # check: should exit 1 (material-stale).
     check_result = runner.invoke(app, ["check", str(repo)])
     assert check_result.exit_code == 1, check_result.output
-    assert "STALE" in check_result.output
+    assert "stale" in check_result.output.lower()
     assert "inventory" in check_result.output or "system-card" in check_result.output
 
     # check --fix: should regenerate and exit 0.
@@ -185,17 +199,17 @@ def test_check_context_change_detected(
 
     result = runner.invoke(app, ["generate", str(repo)])
     assert result.exit_code == 0, result.output
-    assert (repo / GOV / "context.lock").is_file()
+    assert (repo / AGENT_GOV / "context.lock").is_file()
 
     # Autonomy change is deterministically material.
     context_path = repo / ".autogovern" / "context.yaml"
     raw = yaml.safe_load(context_path.read_text())
-    raw["agent"]["autonomy_level"] = "fully-autonomous"
+    raw["agents"]["support-triage-agent"]["autonomy_level"] = "fully-autonomous"
     context_path.write_text(yaml.safe_dump(raw, sort_keys=False))
 
     check_result = runner.invoke(app, ["check", str(repo)])
     assert check_result.exit_code == 1, check_result.output
-    assert "context.agent.autonomy_level" in check_result.output or "STALE" in check_result.output
+    assert "stale" in check_result.output.lower() or "materiality" in check_result.output.lower()
 
     fix_result = runner.invoke(app, ["check", str(repo), "--fix"])
     assert fix_result.exit_code == 0, fix_result.output

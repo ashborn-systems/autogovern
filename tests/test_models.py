@@ -96,10 +96,12 @@ def _context() -> ContextManifest:
             jurisdictions=["UK", "EU"],
             risk_appetite="balanced",
         ),
-        agent=AgentContext(
-            deployment_context="internal",
-            autonomy_level="human-in-the-loop",
-        ),
+        agents={
+            "default": AgentContext(
+                deployment_context="internal",
+                autonomy_level="human-in-the-loop",
+            )
+        },
     )
 
 
@@ -175,31 +177,35 @@ def test_context_accepts_free_text_autonomy_level() -> None:
     """Autonomy level is free text; the LLM normalises it at generation time."""
     ctx = ContextManifest(
         project=ProjectContext(organisation="x", sector="x"),
-        agent=AgentContext(
-            deployment_context="internal",
-            autonomy_level="fully-autonomous, human-on-the-loop",
-        ),
+        agents={
+            "default": AgentContext(
+                deployment_context="internal",
+                autonomy_level="fully-autonomous, human-on-the-loop",
+            )
+        },
     )
-    assert ctx.agent.autonomy_level == "fully-autonomous, human-on-the-loop"
+    assert ctx.agents["default"].autonomy_level == "fully-autonomous, human-on-the-loop"
 
 
 def test_context_accepts_free_text_deployment_context() -> None:
     """Deployment context is free text; the LLM normalises it at generation time."""
     ctx = ContextManifest(
         project=ProjectContext(organisation="x", sector="x"),
-        agent=AgentContext(
-            deployment_context="customer-facing, internal",
-            autonomy_level="human-in-the-loop",
-        ),
+        agents={
+            "default": AgentContext(
+                deployment_context="customer-facing, internal",
+                autonomy_level="human-in-the-loop",
+            )
+        },
     )
-    assert ctx.agent.deployment_context == "customer-facing, internal"
+    assert ctx.agents["default"].deployment_context == "customer-facing, internal"
 
 
 def test_context_accepts_free_text_risk_appetite() -> None:
     """Risk appetite is free text; the LLM normalises it at generation time."""
     ctx = ContextManifest(
         project=ProjectContext(organisation="x", sector="x", risk_appetite="conservative"),
-        agent=AgentContext(),
+        agents={"default": AgentContext()},
     )
     assert ctx.project.risk_appetite == "conservative"
 
@@ -242,9 +248,6 @@ def test_context_requires_organisation() -> None:
     with pytest.raises(ValidationError):
         ContextManifest(  # type: ignore[call-arg]
             sector="x",
-            deployment_context=DeploymentContext.INTERNAL,
-            autonomy_level=AutonomyLevel.HUMAN_IN_THE_LOOP,
-            risk_appetite=RiskAppetite.BALANCED,
         )
 
 

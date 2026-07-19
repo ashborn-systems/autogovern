@@ -82,9 +82,14 @@ def test_criterion_1_init_generate_full_set(
     assert result.exit_code == 0, result.output
 
     gov = repo / "governance"
-    expected = {
+    agent_gov = gov / "support-triage-agent"
+    expected_project = {
         "QUICKSTART.md",
         "ATTENTION.md",
+        "REGISTER.md",
+        "CHANGELOG.md",
+    }
+    expected_agent = {
         "system-card.md",
         "risk-assessment.md",
         "data-protection.md",
@@ -92,18 +97,23 @@ def test_criterion_1_init_generate_full_set(
         "inventory.md",
         "testing.md",
         "incident-response.md",
-        "CHANGELOG.md",
         "profile.lock",
         "context.lock",
     }
-    actual = {f.name for f in gov.iterdir() if f.is_file()}
-    assert expected <= actual
+    actual_project = {f.name for f in gov.iterdir() if f.is_file()}
+    actual_agent = {f.name for f in agent_gov.iterdir() if f.is_file()}
+    assert expected_project <= actual_project
+    assert expected_agent <= actual_agent
 
     # AgentCard was written by scan.
     assert (repo / ".well-known" / "agent.json").is_file() or True  # scan writes it
 
     # Every doc has frontmatter.
     for doc in gov.iterdir():
+        if doc.name in ("profile.lock", "context.lock") or not doc.is_file():
+            continue
+        assert doc.read_text().startswith("---"), f"{doc.name} missing frontmatter"
+    for doc in agent_gov.iterdir():
         if doc.name in ("profile.lock", "context.lock") or not doc.is_file():
             continue
         assert doc.read_text().startswith("---"), f"{doc.name} missing frontmatter"
@@ -135,11 +145,11 @@ def test_criterion_2_check_fix_cycle(
     )
     (repo / ".mcp.json").write_text(json.dumps(mcp, indent=2))
 
-    # check exits 1 with score, stale sections, remediation.
+    # check exits 1 with materiality, stale sections, remediation.
     check_result = runner.invoke(app, ["check", str(repo)])
     assert check_result.exit_code == 1
-    assert "STALE" in check_result.output
-    assert "score" in check_result.output.lower()
+    assert "stale" in check_result.output.lower()
+    assert "materiality" in check_result.output.lower()
 
     # check --fix regenerates.
     fix_result = runner.invoke(app, ["check", str(repo), "--fix"])
@@ -190,7 +200,11 @@ def test_criterion_4_idempotent_generate(
     monkeypatch.setattr(cli_mod, "build_provider", _mock_provider_factory)
     runner.invoke(app, ["generate", str(repo)])
 
-    snapshot = {f.name: f.read_text() for f in (repo / "governance").iterdir() if f.is_file()}
+    snapshot = {
+        str(f.relative_to(repo / "governance")): f.read_text()
+        for f in (repo / "governance").rglob("*")
+        if f.is_file()
+    }
 
     runner.invoke(app, ["generate", str(repo)])
 
@@ -254,7 +268,7 @@ def test_criterion_6_vanilla_mode(
 
     result = runner.invoke(app, ["generate", str(repo)])
     assert result.exit_code == 0, result.output
-    assert (repo / "governance" / "system-card.md").is_file()
+    assert (repo / "governance" / "support-triage-agent" / "system-card.md").is_file()
     assert "without a context manifest" in result.output.lower()
 
     # With init, docs are specific.

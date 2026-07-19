@@ -50,6 +50,8 @@ def build_manifest(
     input_hashes: dict[str, str] | None = None,
     model_id: str | None = None,
     token_counts: dict[str, int | None] | None = None,
+    call_log: list[dict[str, Any]] | None = None,
+    normalisation: dict[str, Any] | None = None,
     prompt_template_versions: dict[str, str] | None = None,
     materiality: dict[str, Any] | None = None,
 ) -> RunManifest:
@@ -60,8 +62,10 @@ def build_manifest(
     from the environment at call time).
     """
     from autogovern.models import (
+        CallRecord,
         MaterialityCriterion,
         MaterialityResult,
+        NormalisationOutcome,
         SectionRegeneration,
         TokenCounts,
     )
@@ -99,6 +103,26 @@ def build_manifest(
             total=token_counts.get("total"),
         )
 
+    calls: list[CallRecord] = []
+    if call_log:
+        for c in call_log:
+            calls.append(
+                CallRecord(
+                    label=c.get("label", ""),
+                    prompt=c.get("prompt"),
+                    completion=c.get("completion"),
+                    total=c.get("total"),
+                )
+            )
+
+    norm: NormalisationOutcome | None = None
+    if normalisation:
+        norm = NormalisationOutcome(
+            used_llm=normalisation.get("used_llm", False),
+            fallback=normalisation.get("fallback", False),
+            fields=normalisation.get("fields", []),
+        )
+
     mat: MaterialityResult | None = None
     if materiality:
         criteria = [MaterialityCriterion(**c) for c in materiality.get("criteria", [])]
@@ -116,6 +140,8 @@ def build_manifest(
         sections_regenerated=sections,
         model_id=model_id,
         token_counts=tc,
+        call_log=calls,
+        normalisation=norm,
         prompt_template_versions=prompt_template_versions or {},
         materiality=mat,
     )
@@ -138,9 +164,35 @@ def read_manifests(root: Path) -> list[Path]:
     return sorted(runs_dir.glob("*.json"))
 
 
+def load_manifest(path: Path) -> RunManifest | None:
+    """Load and parse a single run manifest, or None if unreadable."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return RunManifest.model_validate(data)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+
+
+def load_recent_manifests(root: Path, limit: int = 20) -> list[RunManifest]:
+    """Load the most recent run manifests, newest first."""
+    paths = read_manifests(root)
+    if not paths:
+        return []
+    manifests: list[RunManifest] = []
+    for path in reversed(paths):
+        manifest = load_manifest(path)
+        if manifest is not None:
+            manifests.append(manifest)
+            if len(manifests) >= limit:
+                break
+    return manifests
+
+
 __all__ = [
     "RUNS_DIR",
     "build_manifest",
+    "load_manifest",
+    "load_recent_manifests",
     "read_manifests",
     "write_manifest",
 ]

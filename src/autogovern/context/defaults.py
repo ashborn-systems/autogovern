@@ -8,7 +8,6 @@ without creating a cycle.
 from __future__ import annotations
 
 from autogovern.models import (
-    AgentContext,
     ContextManifest,
     ProjectContext,
 )
@@ -31,12 +30,7 @@ def default_context() -> ContextManifest:
             owner="engineering lead",
             review_cadence="quarterly",
         ),
-        agent=AgentContext(
-            deployment_context="internal",
-            intended_users="internal developers",
-            autonomy_level="human-in-the-loop",
-            oversight_model="human reviews agent outputs before acting on them",
-        ),
+        agents={},
     )
 
 

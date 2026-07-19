@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "billing": {
+      "tools": [{"name": "process_invoice", "description": "Process an invoice for payment."}]
+    }
+  }
+}

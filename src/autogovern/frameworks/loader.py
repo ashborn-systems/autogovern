@@ -106,8 +106,18 @@ class SectionDependencyGraph:
         Returns a sorted list so output is deterministic across runs. An
         unknown input returns an empty list — an unwatched field changes
         nothing.
+
+        Agent context fields carry a variable agent name (e.g.
+        ``context.agents.support-agent.autonomy_level``). The pack declares
+        these as ``context.agents.*.autonomy_level``; the match is by suffix.
         """
-        return sorted(self.reverse.get(changed_input, set()))
+        docs = self.reverse.get(changed_input, set())
+        if not docs and changed_input.startswith("context.agents."):
+            # Match by suffix: the field name after the last segment.
+            suffix = changed_input.split(".")[-1]
+            wildcard = f"context.agents.*.{suffix}"
+            docs = self.reverse.get(wildcard, set())
+        return sorted(docs)
 
 
 # ---------------------------------------------------------------------------

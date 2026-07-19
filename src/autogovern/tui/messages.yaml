@@ -1,0 +1,42 @@
+# Rotating status messages for pipeline stages.
+#
+# Each message truthfully names the stage's actual work. Adding a message
+# here requires no code change. Rotation is random per stage invocation;
+# serious content stays factual.
+#
+# Stages map to the real pipeline phases in cli.py and the engine.
+
+scan:
+  - "Meeting your agent…"
+  - "Taking inventory…"
+  - "Reading the repo…"
+
+card:
+  - "Filling in the AgentCard…"
+  - "Making introductions to the A2A standard…"
+
+detect:
+  - "Comparing against the lock…"
+  - "Weighing materiality…"
+  - "Deciding if this counts…"
+
+generate:
+  - "Drafting the risk assessment…"
+  - "Documenting the oversight model…"
+  - "Writing up the inventory…"
+
+verify:
+  - "Checking receipts…"
+  - "Cross-examining claims…"
+  - "Striking the unsupported…"
+  - "Checking receipts…"
+
+lock:
+  - "Sealing the lockfile…"
+
+manifest:
+  - "Filing the paperwork on the paperwork…"
+
+normalise:
+  - "Resolving your answers…"
+  - "Making sense of the context…"

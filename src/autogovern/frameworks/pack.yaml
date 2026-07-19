@@ -48,9 +48,9 @@ document_feeds:
       - profile.capabilities
       - profile.skills
     context_inputs:
-      - context.agent.autonomy_level
-      - context.agent.intended_users
-      - context.agent.deployment_context
+      - context.agents.*.autonomy_level
+      - context.agents.*.intended_users
+      - context.agents.*.deployment_context
   risk-assessment.md:
     templates: [agentic-governance/governance-artefacts.md#2]        # Risk to control mapping
     knowledge:
@@ -82,8 +82,8 @@ document_feeds:
     profile_inputs:
       - profile.governance.permissions_surface
     context_inputs:
-      - context.agent.autonomy_level
-      - context.agent.oversight_model
+      - context.agents.*.autonomy_level
+      - context.agents.*.oversight_model
       - context.project.owner
   testing.md:
     templates: [agentic-governance/governance-artefacts.md#6]        # Pre-deployment checklist
@@ -114,7 +114,7 @@ document_feeds:
       - profile.governance.data_categories
     context_inputs:
       - context.project.jurisdictions
-      - context.agent.deployment_context
+      - context.agents.*.deployment_context
       - context.project.sector
   QUICKSTART.md:
     templates: []                                                    # engine-generated

@@ -100,16 +100,35 @@ def diff_context(locked: ContextManifest | None, current: ContextManifest) -> Pr
     diff = ProfileDiff()
     if locked is None:
         return diff
-    for section_name in ("project", "agent"):
-        locked_section = getattr(locked, section_name)
-        current_section = getattr(current, section_name)
-        for field_name in sorted(type(current_section).model_fields):
-            old = getattr(locked_section, field_name)
-            new = getattr(current_section, field_name)
-            if old != new:
-                diff.fields.append(
-                    FieldDiff(field=f"context.{section_name}.{field_name}", old=old, new=new)
-                )
+    # Project section: field-by-field diff.
+    for field_name in sorted(type(current.project).model_fields):
+        old = getattr(locked.project, field_name)
+        new = getattr(current.project, field_name)
+        if old != new:
+            diff.fields.append(FieldDiff(field=f"context.project.{field_name}", old=old, new=new))
+    # Agents section: per-agent field diff. An agent added or removed is a
+    # change to context.agents.<name> (the whole AgentContext).
+    locked_names = set(locked.agents.keys())
+    current_names = set(current.agents.keys())
+    for name in sorted(locked_names | current_names):
+        if name not in locked_names:
+            diff.fields.append(
+                FieldDiff(field=f"context.agents.{name}", old=None, new=current.agents[name])
+            )
+        elif name not in current_names:
+            diff.fields.append(
+                FieldDiff(field=f"context.agents.{name}", old=locked.agents[name], new=None)
+            )
+        else:
+            locked_agent = locked.agents[name]
+            current_agent = current.agents[name]
+            for field_name in sorted(type(current_agent).model_fields):
+                old = getattr(locked_agent, field_name)
+                new = getattr(current_agent, field_name)
+                if old != new:
+                    diff.fields.append(
+                        FieldDiff(field=f"context.agents.{name}.{field_name}", old=old, new=new)
+                    )
     return diff
 
 

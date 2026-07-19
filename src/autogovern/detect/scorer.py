@@ -86,7 +86,7 @@ def _score_field(fd: FieldDiff) -> MaterialityCriterion | None:
             score=90,
             reasoning=f"data categories changed: {sorted(new_cats)}",
         )
-    if field == "context.agent.autonomy_level":
+    if field.startswith("context.agents.") and field.endswith(".autonomy_level"):
         return MaterialityCriterion(
             criterion="autonomy change",
             score=100,
@@ -124,7 +124,7 @@ def score_semantic(diff: ProfileDiff, provider: ProviderClient) -> MaterialityCr
     """
     messages = _build_semantic_messages(diff)
     try:
-        result = provider.chat_json(messages, schema=SemanticScore)
+        result = provider.chat_json(messages, schema=SemanticScore, label="detect.semantic")
         assert isinstance(result, SemanticScore)
     except Exception:
         # Degrade gracefully: assume material so docs get regenerated rather

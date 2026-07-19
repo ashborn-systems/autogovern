@@ -22,7 +22,7 @@ from autogovern.frameworks import load_pack
 from autogovern.generate import generate_docs
 from autogovern.generate.frontmatter import parse_frontmatter
 from autogovern.ingest import scan_repo
-from autogovern.models import Config, ContextManifest, ModelProviderConfig
+from autogovern.models import AgentContext, Config, ContextManifest, ModelProviderConfig
 from autogovern.versioning import (
     INITIAL_VERSION,
     classify_field_diff,
@@ -35,6 +35,8 @@ from tests.conftest import make_mock_provider
 
 FIXTURE_BASIC = Path(__file__).resolve().parent / "fixtures" / "fixture-basic"
 GOV = "governance"
+SLUG = "support-triage-agent"
+AGENT_GOV = f"{GOV}/{SLUG}"
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +88,9 @@ def _permissions(*tools: str, env: list[str] | None = None) -> list[dict[str, st
     ("fd", "expected"),
     [
         (
-            FieldDiff("context.agent.autonomy_level", "human-in-the-loop", "fully-autonomous"),
+            FieldDiff(
+                "context.agents.default.autonomy_level", "human-in-the-loop", "fully-autonomous"
+            ),
             "major",
         ),
         (FieldDiff("governance.data_categories", ["none"], ["personal"]), "major"),
@@ -173,21 +177,33 @@ def _generate(repo: Path, config: Config, context: ContextManifest) -> None:
     provider = make_mock_provider(config)
     try:
         scan_result = scan_repo(repo, config, provider=provider, write_card=False)
-        assert scan_result.profile is not None
-        generate_docs(repo, config, scan_result.profile, context, provider=provider)
+        assert scan_result.agents
+        generate_docs(repo, config, scan_result, context, provider=provider)
     finally:
         provider.close()
 
 
-def _doc_version(repo: Path, doc: str) -> str:
+def _doc_version(repo: Path, agent_slug: str, doc: str) -> str:
+    fm, _ = parse_frontmatter((repo / GOV / agent_slug / doc).read_text())
+    return str(fm["doc_version"])
+
+
+def _project_doc_version(repo: Path, doc: str) -> str:
     fm, _ = parse_frontmatter((repo / GOV / doc).read_text())
     return str(fm["doc_version"])
 
 
 def test_first_generation_stamps_initial_version(repo: Path, config: Config) -> None:
     _generate(repo, config, default_context())
-    for doc in ("system-card.md", "inventory.md", "risk-assessment.md", "QUICKSTART.md"):
-        assert _doc_version(repo, doc) == INITIAL_VERSION
+    for doc in (
+        "system-card.md",
+        "inventory.md",
+        "risk-assessment.md",
+    ):
+        assert _doc_version(repo, SLUG, doc) == INITIAL_VERSION
+    # QUICKSTART is project-level, at governance/QUICKSTART.md
+    fm, _ = parse_frontmatter((repo / GOV / "QUICKSTART.md").read_text())
+    assert str(fm["doc_version"]) == INITIAL_VERSION
 
 
 def test_model_swap_bumps_only_affected_docs(repo: Path, config: Config) -> None:
@@ -200,11 +216,11 @@ def test_model_swap_bumps_only_affected_docs(repo: Path, config: Config) -> None
     _generate(repo, config, default_context())
 
     # system-card and inventory consume model_configuration: minor bump.
-    assert _doc_version(repo, "system-card.md") == "0.2.0"
-    assert _doc_version(repo, "inventory.md") == "0.2.0"
+    assert _doc_version(repo, SLUG, "system-card.md") == "0.2.0"
+    assert _doc_version(repo, SLUG, "inventory.md") == "0.2.0"
     # Untouched documents keep their versions.
-    assert _doc_version(repo, "risk-assessment.md") == INITIAL_VERSION
-    assert _doc_version(repo, "oversight.md") == INITIAL_VERSION
+    assert _doc_version(repo, SLUG, "risk-assessment.md") == INITIAL_VERSION
+    assert _doc_version(repo, SLUG, "oversight.md") == INITIAL_VERSION
 
     # The changelog records the bump and the significance.
     changelog = (repo / GOV / "CHANGELOG.md").read_text()
@@ -218,26 +234,36 @@ def test_autonomy_change_bumps_major(repo: Path, config: Config) -> None:
     _generate(repo, config, context)
 
     context2 = context.model_copy(
-        update={"agent": context.agent.model_copy(update={"autonomy_level": "fully-autonomous"})}
+        update={
+            "agents": {
+                "support-triage-agent": AgentContext(
+                    deployment_context="internal",
+                    autonomy_level="fully-autonomous",
+                    intended_users="internal developers",
+                    oversight_model="human reviews agent outputs before acting on them",
+                )
+            }
+        }
     )
     _generate(repo, config, context2)
 
-    # system-card and oversight consume context.agent.autonomy_level: major bump.
-    assert _doc_version(repo, "system-card.md") == "1.0.0"
-    assert _doc_version(repo, "oversight.md") == "1.0.0"
+    # system-card and oversight consume context.agents.*.autonomy_level: major bump.
+    assert _doc_version(repo, SLUG, "system-card.md") == "1.0.0"
+    assert _doc_version(repo, SLUG, "oversight.md") == "1.0.0"
     # inventory does not consume it.
-    assert _doc_version(repo, "inventory.md") == INITIAL_VERSION
+    assert _doc_version(repo, SLUG, "inventory.md") == INITIAL_VERSION
 
 
 def test_idempotent_regenerate_keeps_versions(repo: Path, config: Config) -> None:
     """A no-op second generate leaves every doc_version unchanged."""
     _generate(repo, config, default_context())
-    before = {
-        doc: _doc_version(repo, doc)
-        for doc in ("system-card.md", "inventory.md", "QUICKSTART.md", "CHANGELOG.md")
-    }
+    before = {doc: _doc_version(repo, SLUG, doc) for doc in ("system-card.md", "inventory.md")}
+    before["QUICKSTART.md"] = _project_doc_version(repo, "QUICKSTART.md")
+    before["CHANGELOG.md"] = _project_doc_version(repo, "CHANGELOG.md")
     _generate(repo, config, default_context())
-    after = {doc: _doc_version(repo, doc) for doc in before}
+    after = {doc: _doc_version(repo, SLUG, doc) for doc in ("system-card.md", "inventory.md")}
+    after["QUICKSTART.md"] = _project_doc_version(repo, "QUICKSTART.md")
+    after["CHANGELOG.md"] = _project_doc_version(repo, "CHANGELOG.md")
     assert before == after
 
 
@@ -248,8 +274,8 @@ def test_changelog_disabled_is_not_written(repo: Path, config: Config) -> None:
     provider = make_mock_provider(cfg)
     try:
         scan_result = scan_repo(repo, cfg, provider=provider, write_card=False)
-        assert scan_result.profile is not None
-        generate_docs(repo, cfg, scan_result.profile, default_context(), provider=provider)
+        assert scan_result.agents is not None
+        generate_docs(repo, cfg, scan_result, default_context(), provider=provider)
     finally:
         provider.close()
     assert not (repo / GOV / "CHANGELOG.md").exists()
@@ -258,8 +284,8 @@ def test_changelog_disabled_is_not_written(repo: Path, config: Config) -> None:
 def test_lockfiles_are_content_addressed(repo: Path, config: Config) -> None:
     """A no-op regenerate does not rewrite the lockfiles (mtime-stable)."""
     _generate(repo, config, default_context())
-    profile_lock = repo / GOV / "profile.lock"
-    context_lock = repo / GOV / "context.lock"
+    profile_lock = repo / AGENT_GOV / "profile.lock"
+    context_lock = repo / AGENT_GOV / "context.lock"
     mtimes = (profile_lock.stat().st_mtime_ns, context_lock.stat().st_mtime_ns)
     _generate(repo, config, default_context())
     assert (profile_lock.stat().st_mtime_ns, context_lock.stat().st_mtime_ns) == mtimes
@@ -270,16 +296,16 @@ def test_lockfiles_roundtrip(repo: Path, config: Config) -> None:
     from autogovern.generate.lockfile import read_context_lock, read_lockfile
 
     _generate(repo, config, default_context())
-    assert read_lockfile(repo / GOV) is not None
-    locked_context = read_context_lock(repo / GOV)
+    assert read_lockfile(repo / AGENT_GOV) is not None
+    locked_context = read_context_lock(repo / AGENT_GOV)
     assert locked_context is not None
-    assert locked_context.agent.autonomy_level == default_context().agent.autonomy_level
+    assert locked_context.agents["support-triage-agent"].autonomy_level == "human-in-the-loop"
 
 
 def test_generated_docs_have_sorted_yaml(repo: Path, config: Config) -> None:
     """Frontmatter stays valid YAML after the versioning changes."""
     _generate(repo, config, default_context())
-    for doc in (repo / GOV).glob("*.md"):
+    for doc in (repo / GOV).rglob("*.md"):
         fm, _ = parse_frontmatter(doc.read_text())
         assert isinstance(fm, dict)
         assert fm["doc_version"] == INITIAL_VERSION

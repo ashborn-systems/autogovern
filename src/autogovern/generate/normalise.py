@@ -17,9 +17,10 @@ import json
 from typing import TYPE_CHECKING
 
 from autogovern.models import (
+    AgentContext,
     AutonomyLevel,
-    ContextManifest,
     DeploymentContext,
+    NormalisationOutcome,
     NormalisedContext,
     RiskAppetite,
 )
@@ -66,53 +67,86 @@ autonomy_level, risk_appetite. Each value must be one of the allowed values.
 """.format
 
 
-def normalise_context(context: ContextManifest, provider: ProviderClient) -> NormalisedContext:
+def normalise_context(
+    agent_context: AgentContext,
+    risk_appetite: str,
+    provider: ProviderClient,
+) -> tuple[NormalisedContext, NormalisationOutcome]:
     """Resolve free-text context fields to canonical enums via one LLM call.
+
+    Takes the per-agent context (deployment_context, autonomy_level) and the
+    project-level risk_appetite. Returns the normalised context plus an
+    outcome record (used_llm, fallback, fields) for the run manifest.
 
     Fast path: if all three raw values are already valid enum members, no
     LLM call is made. Otherwise one ``chat_json`` call resolves the
     ambiguous fields.
 
     Fallback: on any provider error or unparseable response, each field
-    defaults to the higher-risk enum value. The caller should record the
-    fallback in the run manifest.
+    defaults to the higher-risk enum value.
     """
-    direct = _try_direct_resolution(context)
+    direct = _try_direct_resolution(agent_context, risk_appetite)
     if direct is not None:
-        return direct
+        return direct, NormalisationOutcome(
+            used_llm=False,
+            fallback=False,
+            fields=[
+                agent_context.deployment_context,
+                agent_context.autonomy_level,
+                risk_appetite,
+            ],
+        )
 
     try:
-        return _normalise_via_llm(context, provider)
+        result = _normalise_via_llm(agent_context, risk_appetite, provider)
+        return result, NormalisationOutcome(
+            used_llm=True,
+            fallback=False,
+            fields=[
+                result.deployment_context.value,
+                result.autonomy_level.value,
+                result.risk_appetite.value,
+            ],
+        )
     except Exception:
         # Provider error, JSON parse error, or validation error. Fall back
         # to higher-risk defaults so generation never blocks.
-        return _FALLBACK
+        return _FALLBACK, NormalisationOutcome(
+            used_llm=True,
+            fallback=True,
+            fields=[
+                _FALLBACK.deployment_context.value,
+                _FALLBACK.autonomy_level.value,
+                _FALLBACK.risk_appetite.value,
+            ],
+        )
 
 
-def _try_direct_resolution(context: ContextManifest) -> NormalisedContext | None:
-    """Return a NormalisedContext if all three raw values are already canonical.
-
-    Returns None if any field needs LLM resolution.
-    """
+def _try_direct_resolution(
+    agent_context: AgentContext, risk_appetite: str
+) -> NormalisedContext | None:
+    """Return a NormalisedContext if all three raw values are already canonical."""
     try:
         return NormalisedContext(
-            deployment_context=DeploymentContext(context.agent.deployment_context.strip()),
-            autonomy_level=AutonomyLevel(context.agent.autonomy_level.strip()),
-            risk_appetite=RiskAppetite(context.project.risk_appetite.strip()),
+            deployment_context=DeploymentContext(agent_context.deployment_context.strip()),
+            autonomy_level=AutonomyLevel(agent_context.autonomy_level.strip()),
+            risk_appetite=RiskAppetite(risk_appetite.strip()),
         )
     except ValueError:
         return None
 
 
-def _normalise_via_llm(context: ContextManifest, provider: ProviderClient) -> NormalisedContext:
+def _normalise_via_llm(
+    agent_context: AgentContext, risk_appetite: str, provider: ProviderClient
+) -> NormalisedContext:
     """Ask the LLM to resolve ambiguous free-text values to canonical enums."""
     prompt = _NORMALISE_PROMPT(
         deployment_context=", ".join(_VOCABULARY["deployment_context"]),
         autonomy_level=", ".join(_VOCABULARY["autonomy_level"]),
         risk_appetite=", ".join(_VOCABULARY["risk_appetite"]),
-        deployment_context_answer=context.agent.deployment_context,
-        autonomy_level_answer=context.agent.autonomy_level,
-        risk_appetite_answer=context.project.risk_appetite,
+        deployment_context_answer=agent_context.deployment_context,
+        autonomy_level_answer=agent_context.autonomy_level,
+        risk_appetite_answer=risk_appetite,
     )
     messages = [
         {
@@ -124,7 +158,7 @@ def _normalise_via_llm(context: ContextManifest, provider: ProviderClient) -> No
         },
         {"role": "user", "content": prompt},
     ]
-    raw = provider.chat_json(messages)
+    raw = provider.chat_json(messages, label="normalise")
     parsed = _coerce_to_dict(raw)
     return NormalisedContext(
         deployment_context=DeploymentContext(parsed["deployment_context"]),

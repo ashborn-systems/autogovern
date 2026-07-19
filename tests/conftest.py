@@ -26,7 +26,10 @@ _MOCK_KEY_VALUE = "sk-test-not-a-real-key"
 def _mock_handler(request: httpx.Request) -> httpx.Response:
     """Return a canned FreeTextSummary JSON for any chat request."""
     content = json.dumps({"data_categories": ["personal"]})
-    body = {"choices": [{"message": {"role": "assistant", "content": content}}]}
+    body = {
+        "choices": [{"message": {"role": "assistant", "content": content}}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+    }
     return httpx.Response(200, content=json.dumps(body).encode())
 
 

@@ -9,20 +9,31 @@ summarise) behind a thin orchestration shell (scanner).
 """
 
 from autogovern.ingest.discovery import (
+    AgentDiscovery,
     DiscoveredSignals,
     DiscoveredSources,
     FileSource,
+    discover_agents,
     discover_signals,
     discover_source_files,
 )
-from autogovern.ingest.scanner import CARD_REL_PATH, ScanResult, read_card, scan_repo
+from autogovern.ingest.scanner import (
+    CARD_REL_PATH,
+    ScannedAgent,
+    ScanResult,
+    read_card,
+    scan_repo,
+)
 
 __all__ = [
     "CARD_REL_PATH",
+    "AgentDiscovery",
     "DiscoveredSignals",
     "DiscoveredSources",
     "FileSource",
     "ScanResult",
+    "ScannedAgent",
+    "discover_agents",
     "discover_signals",
     "discover_source_files",
     "read_card",

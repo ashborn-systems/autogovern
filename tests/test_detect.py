@@ -51,8 +51,8 @@ def _scan(repo: Path, config: Config) -> AgentProfile:
     provider = make_mock_provider(config)
     result = scan_repo(repo, config, provider=provider, write_card=False)
     provider.close()
-    assert result.profile is not None
-    return result.profile
+    assert result.agents
+    return result.agents[0].profile
 
 
 def _config() -> Config:
@@ -215,8 +215,8 @@ def _mock_semantic_provider(config: Config, score: int) -> object:
         "MockProvider",
         (),
         {
-            "chat_json": lambda self, messages, schema=None: _parse_score(canned),
-            "chat": lambda self, messages: canned,
+            "chat_json": lambda self, messages, schema=None, **kw: _parse_score(canned),
+            "chat": lambda self, messages, **kw: canned,
             "close": lambda self: None,
         },
     )()

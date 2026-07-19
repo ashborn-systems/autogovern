@@ -53,6 +53,12 @@ def _resolve_path(doc_path: Path, governance_dir: Path | None) -> Path:
         candidate = governance_dir / doc_path
         if candidate.is_file():
             return candidate
+        # Multi-agent: search subdirectories.
+        for child in governance_dir.iterdir():
+            if child.is_dir():
+                candidate = child / doc_path
+                if candidate.is_file():
+                    return candidate
     return doc_path
 
 

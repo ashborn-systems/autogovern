@@ -46,5 +46,5 @@ def test_scan_perf_under_5_seconds(tmp_path: Path) -> None:
         provider.close()
 
     assert result.signals_found is True
-    assert result.profile is not None
+    assert result.agents
     assert elapsed < _PERF_BOUND_SECONDS, f"scan took {elapsed:.2f}s (bound {_PERF_BOUND_SECONDS}s)"
