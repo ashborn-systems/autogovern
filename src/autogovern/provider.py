@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -265,6 +266,8 @@ class ProviderClient:
         env_var = self._config.model_provider.api_key_env
         key = os.environ.get(env_var)
         if not key:
+            key = _discover_api_key(env_var)
+        if not key:
             raise MissingApiKeyError(
                 f"Environment variable {env_var} is not set. Set it to your provider API key."
             )
@@ -298,6 +301,38 @@ def build_provider(config: Config) -> ProviderClient:
     without touching the CLI's config-loading logic.
     """
     return ProviderClient(config)
+
+
+def _discover_api_key(env_var: str) -> str | None:
+    """Auto-discover an API key from common locations when not in the environment.
+
+    Searches, in order:
+    1. ``~/.autogovern/.env`` — user-level config
+    2. ``<cwd>/../autogovern-enterprise/apps/api/.env`` — enterprise monorepo
+    3. ``<cwd>/.env`` — local project
+
+    Returns the key if found, or None.
+    """
+    search_paths = [
+        Path.home() / ".autogovern" / ".env",
+        Path.cwd().resolve().parent / "autogovern-enterprise" / "apps" / "api" / ".env",
+        Path.cwd() / "autogovern-enterprise" / "apps" / "api" / ".env",
+        Path.cwd() / ".env",
+    ]
+    for path in search_paths:
+        if not path.exists():
+            continue
+        try:
+            for line in path.read_text().splitlines():
+                line = line.strip()
+                if line.startswith(f"{env_var}="):
+                    return line.split("=", 1)[1].strip()
+                # Also check AUTOGOVERN_API_KEY as a fallback name
+                if env_var != "AUTOGOVERN_API_KEY" and line.startswith("AUTOGOVERN_API_KEY="):
+                    return line.split("=", 1)[1].strip()
+        except OSError:
+            continue
+    return None
 
 
 __all__ = [

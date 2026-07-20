@@ -83,6 +83,42 @@ class AgentCard(BaseModel):
     skills: list[AgentSkill] = Field(default_factory=list)
     authentication: AgentAuthentication = Field(default_factory=AgentAuthentication)
     provider: AgentProvider | None = None
+    subagents: list[Subagent] = Field(
+        default_factory=list,
+        description="Subagents delegated to by this agent, with relationship type. "
+        "Populated from agent instruction files and tool definitions.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subagent relationship
+# ---------------------------------------------------------------------------
+
+
+class SubagentRelationship(StrEnum):
+    """How a subagent relates to its parent agent."""
+
+    DELEGATION = "delegation"
+    PIPELINE = "pipeline"
+    PEER_HANDOFF = "peer-handoff"
+
+
+class Subagent(BaseModel):
+    """A subagent the parent agent orchestrates.
+
+    Recorded in the parent's AgentCard so deployers can see which subagents
+    a parent controls, what each does, and how they relate. This is a
+    governance requirement: the deployer must be able to audit the full
+    agent topology from the A2A card.
+    """
+
+    id: str
+    name: str
+    description: str
+    relationship: SubagentRelationship
+    parent_agent: str = ""
+    count: int = 1
+    model: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +197,10 @@ class AgentProfile(BaseModel):
     skills: list[AgentSkill] = Field(default_factory=list)
     authentication: AgentAuthentication = Field(default_factory=AgentAuthentication)
     provider: AgentProvider | None = None
+    subagents: list[Subagent] = Field(
+        default_factory=list,
+        description="Subagents delegated to by this agent, with relationship type.",
+    )
 
     # Governance extension
     governance: GovernanceExtension
@@ -427,6 +467,8 @@ __all__ = [
     "RiskAppetite",
     "RunManifest",
     "SectionRegeneration",
+    "Subagent",
+    "SubagentRelationship",
     "Thresholds",
     "TokenCounts",
 ]

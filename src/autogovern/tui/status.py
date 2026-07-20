@@ -86,7 +86,7 @@ def _last_run(root: Path) -> Text:
         return dim("unreadable")
     command = data.get("command", "?")
     sections = len(data.get("sections_regenerated", []))
-    tokens = data.get("token_counts", {}).get("total")
+    tokens = (data.get("token_counts") or {}).get("total")
     parts = [command]
     if sections:
         parts.append(f"{sections} section(s)")
