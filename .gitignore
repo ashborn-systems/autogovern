@@ -210,17 +210,13 @@ pyrightconfig.json
 # End of https://www.toptal.com/developers/gitignore/api/python,linux,visualstudiocode
 
 # autogovern
-.env
-.env.*
-!.env.example
-.venv/
-__pycache__/
-*.pyc
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
 governance/
-.autogovern/runs/
+.autogovern/
+.well-known/
+.github/workflows/autogovern.yml
+**/fixtures/**/.github/
+**/fixtures/**/.well-known/
+**/fixtures/**/.autogovern/
 
 # Internal build process documents (kept locally, never published)
 docs/
