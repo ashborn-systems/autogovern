@@ -83,10 +83,10 @@ class AgentCard(BaseModel):
     skills: list[AgentSkill] = Field(default_factory=list)
     authentication: AgentAuthentication = Field(default_factory=AgentAuthentication)
     provider: AgentProvider | None = None
-    subagents: list[Subagent] = Field(
+    extensions: list[AgentCardExtension] = Field(
         default_factory=list,
-        description="Subagents delegated to by this agent, with relationship type. "
-        "Populated from agent instruction files and tool definitions.",
+        description="A2A Extensions for vendor-specific data. "
+        "Subagent topology is carried in the subagent-topology extension.",
     )
 
 
@@ -106,10 +106,10 @@ class SubagentRelationship(StrEnum):
 class Subagent(BaseModel):
     """A subagent the parent agent orchestrates.
 
-    Recorded in the parent's AgentCard so deployers can see which subagents
-    a parent controls, what each does, and how they relate. This is a
-    governance requirement: the deployer must be able to audit the full
-    agent topology from the A2A card.
+    Recorded in the parent's AgentCard via an A2A Extension so deployers
+    can see which subagents a parent controls, what each does, and how
+    they relate. This is a governance requirement: the deployer must be
+    able to audit the full agent topology.
     """
 
     id: str
@@ -119,6 +119,25 @@ class Subagent(BaseModel):
     parent_agent: str = ""
     count: int = 1
     model: str = ""
+
+
+# A2A AgentCard Extension (standards-compliant custom data)
+# ---------------------------------------------------------------------------
+
+SUBAGENT_TOPOLOGY_EXTENSION_URI = "https://ashbornsystems.com/extensions/subagent-topology/v1"
+
+
+class AgentCardExtension(BaseModel):
+    """An A2A Extension block on an AgentCard.
+
+    Extensions are the A2A-standard mechanism for vendor-specific data.
+    Each extension is identified by a URI and carries opaque params that
+    A2A consumers can inspect or ignore.
+    """
+
+    uri: str
+    description: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +216,9 @@ class AgentProfile(BaseModel):
     skills: list[AgentSkill] = Field(default_factory=list)
     authentication: AgentAuthentication = Field(default_factory=AgentAuthentication)
     provider: AgentProvider | None = None
-    subagents: list[Subagent] = Field(
+    extensions: list[AgentCardExtension] = Field(
         default_factory=list,
-        description="Subagents delegated to by this agent, with relationship type.",
+        description="A2A Extensions for vendor-specific data.",
     )
 
     # Governance extension
@@ -439,10 +458,11 @@ __all__ = [
     "AgentAuthentication",
     "AgentCapabilities",
     "AgentCard",
+    "AgentCardExtension",
+    "AgentContext",
     "AgentProfile",
     "AgentProvider",
     "AgentSkill",
-    "AgentContext",
     "AutonomyLevel",
     "CallRecord",
     "Config",
